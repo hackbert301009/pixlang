@@ -1,0 +1,27 @@
+# PixLang v0.4 — Batch Processing Pipeline
+#
+# Processes every .jpg in examples/ and saves annotated results.
+# Uses LOAD_GLOB for multi-file input and SAVE_EACH with template names.
+#
+# Run: pixlang run examples/batch_process.pxl --verbose
+# (batch mode is auto-detected from LOAD_GLOB)
+
+SET blur_k 3
+
+# LOAD_GLOB triggers automatic batch mode —
+# the pipeline runs once per matched file
+LOAD_GLOB "*.jpg"
+
+RESIZE 320 240
+
+GRAYSCALE
+BLUR $blur_k
+THRESHOLD_OTSU
+FIND_CONTOURS
+DRAW_BOUNDING_BOXES
+
+# {stem} = original filename without extension
+# {index1} = 1-based counter
+DRAW_TEXT "processed" 5 20 0.5 255 255 80 1 "simplex"
+
+SAVE_EACH "examples/batch_out/{stem}_annotated.png"

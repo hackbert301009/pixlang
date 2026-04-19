@@ -1,0 +1,20 @@
+# PixLang v0.4 — Reusable Sub-Pipeline
+# File: examples/preprocess.pxl
+#
+# This pipeline is designed to be INCLUDEd from other pipelines.
+# It receives whatever image is currently loaded and applies
+# standard preprocessing for object detection.
+#
+# Usage in parent pipeline:
+#   LOAD "image.jpg"
+#   INCLUDE "examples/preprocess.pxl"
+#   FIND_CONTOURS
+#   DRAW_BOUNDING_BOXES
+#   SAVE "result.png"
+
+# Standard detection pre-processing
+GRAYSCALE
+BLUR 5
+THRESHOLD_OTSU
+ERODE 3 1
+DILATE 3 2

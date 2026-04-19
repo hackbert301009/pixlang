@@ -1,0 +1,40 @@
+# PixLang v0.4 — ROI Analysis + ASSERT Validation
+#
+# Demonstrates:
+#   - ROI: process only a rectangular region of the image
+#   - ASSERT: validate image properties at runtime
+#   - AUTO_CROP: automatically crop to content
+#   - COMPARE: compute diff metrics against a reference
+#
+# Run: pixlang run examples/roi_assert.pxl --verbose
+
+SET width  640
+SET height 480
+
+LOAD "examples/sample.jpg"
+RESIZE $width $height
+
+# Validate we loaded correctly
+ASSERT width  == 640  "Image must be 640px wide"
+ASSERT height == 480  "Image must be 480px tall"
+
+# Save original for later comparison
+CHECKPOINT "original"
+
+# ── Process only the top-left quadrant via ROI ────────────────────────────────
+ROI 0 0 320 240
+    GRAYSCALE
+    BLUR 5
+    THRESHOLD_OTSU
+    FIND_CONTOURS
+    DRAW_BOUNDING_BOXES
+ROI_RESET
+
+# ── Full-image annotation ─────────────────────────────────────────────────────
+DRAW_TEXT "ROI ANALYSIS" 12 35 1.0 255 255 80 2 "duplex"
+DRAW_TEXT "region: 0,0 320x240" 12 465 0.7 160 160 160 1 "simplex"
+
+# Compare result to original — prints PSNR + MAD
+COMPARE "original"
+
+SAVE "examples/roi_assert_out.png"

@@ -1,0 +1,10 @@
+# PixLang — Edge Detection Pipeline
+# examples/edge_detection.pxl
+
+LOAD "examples/sample.jpg"
+RESIZE 800 600
+GRAYSCALE
+BLUR 3
+CANNY 50 150
+DILATE 2 1
+SAVE "examples/edges.png"

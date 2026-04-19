@@ -1,0 +1,29 @@
+# PixLang v0.4 — Pipeline Composition via INCLUDE
+#
+# Demonstrates INCLUDE: inline another .pxl file at runtime.
+# Sub-pipelines share the same executor context (variables, checkpoints).
+#
+# Run: pixlang run examples/include_demo.pxl --verbose
+
+SET width  640
+SET height 480
+
+LOAD "examples/sample.jpg"
+RESIZE $width $height
+
+CHECKPOINT "original"
+
+# ── Inline the shared preprocessing pipeline ─────────────────────────────────
+INCLUDE "preprocess.pxl"
+
+# ── Continue with detection in this pipeline ─────────────────────────────────
+FIND_CONTOURS
+DRAW_BOUNDING_BOXES
+OVERLAY "original" 0.3
+
+ASSERT width  == 640  "Width must be preserved through INCLUDE"
+ASSERT height == 480  "Height must be preserved through INCLUDE"
+
+DRAW_TEXT "INCLUDE DEMO" 12 35 1.0 255 255 80 2 "duplex"
+PIPELINE_STATS
+SAVE "examples/include_demo_out.png"

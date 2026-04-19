@@ -1,0 +1,45 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PixLang Example Pipeline
+# File: examples/pipeline.pxl
+#
+# This pipeline demonstrates the full built-in command set:
+#   1. Load an image
+#   2. Resize and pre-process
+#   3. Detect edges / threshold
+#   4. Find contours and annotate
+#   5. Save the result
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Load source image from disk
+LOAD "examples/sample.jpg"
+
+# Resize to a fixed working resolution
+RESIZE 640 480
+
+# Print current image info for debugging
+PRINT_INFO
+
+# Convert to grayscale for analysis
+GRAYSCALE
+
+# Reduce noise before thresholding
+BLUR 5
+
+# Auto-threshold using Otsu's method
+THRESHOLD_OTSU
+
+# Optional: manual threshold instead of Otsu
+# THRESHOLD 128
+
+# Clean up small artefacts
+ERODE 3 1
+DILATE 3 2
+
+# Detect all external contours
+FIND_CONTOURS
+
+# Draw green bounding boxes around every detected object
+DRAW_BOUNDING_BOXES
+
+# Save the annotated result
+SAVE "examples/output.png"

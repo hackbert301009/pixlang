@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pixlang"
+version = "0.4.0"
+description = "A minimal, human-readable DSL for computer vision pipelines"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "PixLang Contributors" }
+]
+keywords = ["computer-vision", "dsl", "image-processing", "pipeline", "opencv"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+dependencies = [
+    "opencv-python>=4.8",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+pixlang = "pixlang.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/pixlang"
+Repository = "https://github.com/yourusername/pixlang"
+Issues = "https://github.com/yourusername/pixlang/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pixlang*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["pixlang"]
+omit = ["tests/*"]

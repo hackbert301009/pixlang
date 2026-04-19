@@ -1,0 +1,31 @@
+# PixLang v0.3 — Image Pyramid + Histogram
+# Builds a 3-level Gaussian image pyramid using REPEAT + RESIZE_PERCENT.
+# Also demonstrates HISTOGRAM_SAVE for analysis output.
+#
+# Run: pixlang run examples/pyramid.pxl --verbose
+
+SET scale_pct  50
+SET blur_k     3
+
+LOAD "examples/sample.jpg"
+RESIZE 640 480
+
+# Save histogram of original
+HISTOGRAM_SAVE "examples/histogram_original.png"
+DRAW_TEXT "LEVEL 0  640x480" 10 30 0.8 255 255 100 2 "simplex"
+SAVE "examples/pyramid_L0.png"
+
+# Level 1 — 50%
+RESIZE_PERCENT $scale_pct
+BLUR $blur_k
+HISTOGRAM_SAVE "examples/histogram_L1.png"
+DRAW_TEXT "LEVEL 1  320x240" 10 20 0.6 255 200 100 1 "simplex"
+SAVE "examples/pyramid_L1.png"
+
+# Level 2 — 50% of L1 = 25% of original
+RESIZE_PERCENT $scale_pct
+BLUR $blur_k
+DRAW_TEXT "LEVEL 2  160x120" 5 14 0.4 255 150 100 1 "simplex"
+SAVE "examples/pyramid_L2.png"
+
+PIPELINE_STATS

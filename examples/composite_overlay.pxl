@@ -1,0 +1,37 @@
+# PixLang v0.2 — Composite Overlay Pipeline
+#
+# Demonstrates CHECKPOINT + OVERLAY:
+#   1. Save the original colour image as a checkpoint
+#   2. Process to detect contours (requires grayscale → threshold)
+#   3. Draw bounding boxes on a clean canvas
+#   4. Blend the annotation layer back over the original colour image
+#
+# Run: pixlang run examples/composite_overlay.pxl --verbose
+
+LOAD "examples/sample.jpg"
+RESIZE 640 480
+
+# ── Save the original colour image for later compositing ──
+CHECKPOINT "original_color"
+
+# ── Now process for object detection ──
+GRAYSCALE
+BLUR 5
+THRESHOLD_OTSU
+ERODE 3 1
+DILATE 3 2
+FIND_CONTOURS
+DRAW_BOUNDING_BOXES
+
+# ── Blend: 30% annotation layer + 70% original colour ──
+OVERLAY "original_color" 0.3
+
+# ── Annotate the final composite ──
+DRAW_TEXT "OBJECT DETECTION" 12 35 1.0 255 255 80 2 "duplex"
+DRAW_TEXT "v0.2 composite" 12 465 0.7 180 180 180 1 "simplex"
+
+# ── STAMP_VERSION is provided by composite_overlay.plugins.py ──
+# It is auto-loaded because it shares the pipeline's stem name.
+STAMP_VERSION "v0.2"
+
+SAVE "examples/composite_overlay.png"

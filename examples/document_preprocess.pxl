@@ -1,0 +1,12 @@
+# PixLang — Document Preprocessing Pipeline
+# Cleans up a scanned document for OCR
+# examples/document_preprocess.pxl
+
+LOAD "examples/sample.jpg"
+RESIZE 1200 1600
+GRAYSCALE
+NORMALIZE
+EQUALIZE_HIST
+ADAPTIVE_THRESHOLD 15 4
+MEDIAN_BLUR 3
+SAVE "examples/document_clean.png"

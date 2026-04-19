@@ -1,0 +1,34 @@
+# PixLang v0.4 — BLEND Modes Showcase
+#
+# Demonstrates all 7 BLEND compositing modes.
+# Each mode is applied and saved as a separate file for comparison.
+#
+# Run: pixlang run examples/blend_modes.pxl --verbose
+
+LOAD "examples/sample.jpg"
+RESIZE 640 480
+CHECKPOINT "base"
+
+# ── difference mode — reveals pixel-level changes ─────────────────────────────
+GRAYSCALE
+HEATMAP "inferno"
+BLEND "base" 0.5 "difference"
+DRAW_TEXT "BLEND: difference" 10 30 0.8 255 255 255 1 "simplex"
+SAVE "examples/blend_difference.png"
+
+# ── screen mode — brightens, good for light overlays ─────────────────────────
+LOAD "examples/sample.jpg"
+RESIZE 640 480
+GRAYSCALE
+HEATMAP "plasma"
+BLEND "base" 0.6 "screen"
+DRAW_TEXT "BLEND: screen" 10 30 0.8 255 255 255 1 "simplex"
+SAVE "examples/blend_screen.png"
+
+# ── multiply mode — darkens, good for masks ───────────────────────────────────
+LOAD "examples/sample.jpg"
+RESIZE 640 480
+GRAYSCALE
+BLEND "base" 0.8 "multiply"
+DRAW_TEXT "BLEND: multiply" 10 30 0.8 255 255 255 1 "simplex"
+SAVE "examples/blend_multiply.png"

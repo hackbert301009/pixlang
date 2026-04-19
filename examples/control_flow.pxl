@@ -1,0 +1,49 @@
+# PixLang v0.3 — Control Flow Demo
+# Demonstrates: SET variables, IF conditionals, REPEAT loops, $var references
+#
+# Run: pixlang run examples/control_flow.pxl --verbose
+
+# ── Variables ─────────────────────────────────────────────────────────────────
+SET width    640
+SET height   480
+SET blur_k   5
+SET threshold 110
+SET mode     "inspect"
+
+LOAD "examples/sample.jpg"
+RESIZE $width $height
+PRINT_INFO
+
+# ── Checkpoint the original immediately ───────────────────────────────────────
+CHECKPOINT "original"
+
+# ── Conditional branch: only sharpen when mode == "inspect" ───────────────────
+IF mode == "inspect"
+    SHARPEN
+    DRAW_TEXT "INSPECT MODE" 12 35 0.9 80 200 255 2 "duplex"
+ENDIF
+
+# ── Grayscale + blur using variables ──────────────────────────────────────────
+GRAYSCALE
+BLUR $blur_k
+
+# ── Progressive threshold: apply ERODE in a loop to clean noise ───────────────
+THRESHOLD $threshold
+
+REPEAT 3
+    ERODE 3 1
+    DILATE 3 1
+END
+
+# ── Detection & annotation ────────────────────────────────────────────────────
+FIND_CONTOURS
+DRAW_BOUNDING_BOXES
+
+# ── Blend back over original with 35% weight ──────────────────────────────────
+OVERLAY "original" 0.35
+
+# ── Stats + output ────────────────────────────────────────────────────────────
+PIPELINE_STATS
+
+DRAW_TEXT "v0.3 control flow" 12 465 0.7 160 160 160 1 "simplex"
+SAVE "examples/control_flow_out.png"

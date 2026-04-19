@@ -1,0 +1,25 @@
+# PixLang v0.2 — Heatmap Annotation Pipeline
+# Converts grayscale intensity to a false-color heatmap and labels it.
+# Run: pixlang run examples/heatmap_annotation.pxl --verbose
+
+LOAD "examples/sample.jpg"
+RESIZE 640 480
+PRINT_INFO
+
+# Convert to grayscale — heatmap works on intensity values
+GRAYSCALE
+
+# Apply Otsu threshold to isolate high-intensity regions
+BLUR 3
+NORMALIZE
+
+# Apply the inferno false-color heatmap
+HEATMAP "inferno"
+
+# Annotate with white label text
+DRAW_TEXT "INTENSITY MAP" 12 35 1.1 255 255 255 2 "duplex"
+
+# Add a green status label bottom-left
+DRAW_TEXT "PASS" 12 455 0.9 80 255 80 2 "simplex"
+
+SAVE "examples/heatmap_annotation.png"
