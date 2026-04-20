@@ -15,16 +15,17 @@ from typing import List
 KEYWORDS = {"SET", "IF", "ENDIF", "REPEAT", "END", "INCLUDE", "ASSERT", "ROI", "ROI_RESET", "LOAD_GLOB", "SAVE_EACH"}
 
 TOKEN_PATTERNS = [
-    ("COMMENT",  r"#[^\n]*"),
-    ("STRING",   r'"[^"]*"'),
-    ("VAR",      r"\$[A-Za-z_][A-Za-z0-9_]*"),   # $name
-    ("FLOAT",    r"\d+\.\d+"),
-    ("INT",      r"-?\d+"),                        # allow negative ints
-    ("OP",       r"==|!=|<=|>=|<|>"),
-    ("WORD",     r"[A-Za-z_][A-Za-z0-9_]*"),      # commands, keywords, idents
-    ("SKIP",     r"[ \t]+"),
-    ("NEWLINE",  r"\n"),
-    ("MISMATCH", r"."),
+    ("COMMENT",   r"#[^\n]*"),
+    ("STRING",    r'"[^"]*"'),
+    ("VAR",       r"\$[A-Za-z_][A-Za-z0-9_]*"),   # $name
+    ("FLOAT",     r"\d+\.\d+"),
+    ("INT",       r"-?\d+"),                        # allow negative ints
+    ("OP",        r"==|!=|<=|>=|<|>"),
+    ("WORD",      r"[A-Za-z_][A-Za-z0-9_]*"),      # commands, keywords, idents
+    ("SKIP",      r"[ \t]+"),
+    ("LINE_CONT", r"\\\s*\n"),                      # backslash continuation
+    ("NEWLINE",   r"\n"),
+    ("MISMATCH",  r"."),
 ]
 
 MASTER_PATTERN = re.compile(
@@ -54,6 +55,8 @@ def tokenize(source: str) -> List[Token]:
 
         if kind == "NEWLINE":
             line_num += 1
+        elif kind == "LINE_CONT":
+            line_num += 1   # continuation line still tracked for error messages
         elif kind in ("SKIP", "COMMENT"):
             pass
         elif kind == "MISMATCH":

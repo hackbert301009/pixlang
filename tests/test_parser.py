@@ -120,3 +120,50 @@ def test_registry_unknown_raises():
     from pixlang.commands import registry
     with pytest.raises(NameError):
         registry.get("UNKNOWN_COMMAND_XYZ")
+
+
+# ── Backslash continuation tests ──────────────────────────────────────────────
+
+def test_continuation_basic():
+    """Backslash at line end joins the next line into the same command."""
+    pipeline = parse('RESIZE \\\n640 480')
+    cmd = pipeline.commands[0]
+    assert cmd.name == "RESIZE"
+    assert cmd.args == [640, 480]
+
+
+def test_continuation_multiple():
+    """Multiple continuation lines all fold into one command."""
+    src = 'DRAW_TEXT \\\n"Hello" \\\n10 20'
+    pipeline = parse(src)
+    cmd = pipeline.commands[0]
+    assert cmd.name == "DRAW_TEXT"
+    assert cmd.args[0] == "Hello"
+    assert cmd.args[1] == 10
+    assert cmd.args[2] == 20
+
+
+def test_continuation_with_indent():
+    """Indentation after backslash is ignored."""
+    src = 'RESIZE \\\n    640 \\\n    480'
+    pipeline = parse(src)
+    cmd = pipeline.commands[0]
+    assert cmd.args == [640, 480]
+
+
+def test_continuation_does_not_break_next_command():
+    """A command after a continued command is parsed as separate."""
+    src = 'RESIZE \\\n640 480\nGRAYSCALE'
+    pipeline = parse(src)
+    assert len(pipeline.commands) == 2
+    assert pipeline.commands[0].name == "RESIZE"
+    assert pipeline.commands[1].name == "GRAYSCALE"
+
+
+def test_continuation_line_number_preserved():
+    """Tokens after continuation carry the correct (incremented) line number."""
+    from pixlang.parser.lexer import tokenize
+    tokens = tokenize('RESIZE \\\n640 480')
+    # 640 is on line 2 after the continuation
+    int_tok = next(t for t in tokens if t.value == "640")
+    assert int_tok.line == 2

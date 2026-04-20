@@ -1,20 +1,15 @@
 # PixLang
 
-```
-  ██████╗ ██╗██╗  ██╗██╗      █████╗ ███╗   ██╗ ██████╗
-  ██╔══██╗██║╚██╗██╔╝██║     ██╔══██╗████╗  ██║██╔════╝
-  ██████╔╝██║ ╚███╔╝ ██║     ███████║██╔██╗ ██║██║  ███╗
-  ██╔═══╝ ██║ ██╔██╗ ██║     ██╔══██║██║╚██╗██║██║   ██║
-  ██║     ██║██╔╝ ██╗███████╗██║  ██║██║ ╚████║╚██████╔╝
-  ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
-```
+<p align="center">
+  <img src="docs/logo.svg" alt="PixLang logo" width="480"/>
+</p>
 
 **A minimal, human-readable DSL for computer vision pipelines.**
 
 [![CI](https://github.com/hackbert301009/pixlang/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/pixlang/actions)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-213%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-218%20passing-brightgreen)]()
 
 ---
 
@@ -49,7 +44,7 @@ SAVE "output/result.png"
 
 | Category | Feature |
 |---|---|
-| **Language** | Variables (`SET`/`$ref`), conditionals (`IF`/`ENDIF`), loops (`REPEAT`/`END`) |
+| **Language** | Variables (`SET`/`$ref`), conditionals (`IF`/`ENDIF`), loops (`REPEAT`/`END`), line continuation (`\`) |
 | **Composition** | `INCLUDE` sub-pipelines with shared context |
 | **Validation** | `ASSERT` runtime checks (width, height, channels, min, max, contour_count) |
 | **ROI** | `ROI x y w h … ROI_RESET` — process masked regions, auto-paste back |
@@ -100,8 +95,25 @@ SET height 480
 SET mode   "inspect"
 
 LOAD "image.jpg"
-RESIZE $width $height
+RESIZE $width $height   # with $ prefix
+RESIZE width height     # bare name also works
 ```
+
+### Line Continuation
+
+Long argument lists can be split across multiple lines using a trailing backslash:
+
+```
+DRAW_TEXT \
+    "Defect detected" \
+    12 35 \
+    1.0 255 80 80 2
+
+DRAW_TEXT "Defect detected" 12 35 1.0 255 80 80 2   # identical
+```
+
+Any command can use `\` at the end of a line to continue on the next.
+Indentation after `\` is ignored.
 
 ### Conditionals
 ```
@@ -279,7 +291,7 @@ pixlang/
 ## Testing
 
 ```bash
-pytest                    # 213 tests
+pytest                    # 218 tests
 pytest --cov=pixlang      # with coverage
 pytest tests/test_v4.py   # v0.4 only
 ```
