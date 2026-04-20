@@ -24,7 +24,7 @@ from __future__ import annotations
 from typing import List, Any
 from .lexer import Token, tokenize
 from .ast_nodes import (
-    Command, SetVar, IfBlock, RepeatBlock, Pipeline, VarRef, Statement,
+    Command, SetVar, IfBlock, RepeatBlock, Pipeline, VarRef, BareIdent, Statement,
     IncludeStmt, AssertStmt, RoiBlock,
 )
 
@@ -181,7 +181,7 @@ class _Parser:
     # ── Argument parsers ──────────────────────────────────────────────────────
 
     def _parse_arg(self) -> Any:
-        """Parse one argument token: STRING | INT | FLOAT | VAR | IDENT-as-string."""
+        """Parse one argument token: STRING | INT | FLOAT | VAR | IDENT."""
         tok = self._peek()
         if tok is None:
             raise SyntaxError("[PixLang Parser] Expected argument, got end of input")
@@ -189,6 +189,9 @@ class _Parser:
         if tok.type == "VAR":
             self._advance()
             return VarRef(var_name=tok.value[1:], line=tok.line)  # strip $
+        if tok.type == "IDENT":
+            self._advance()
+            return BareIdent(name=tok.value, line=tok.line)
         return self._parse_scalar()
 
     def _parse_scalar(self) -> Any:

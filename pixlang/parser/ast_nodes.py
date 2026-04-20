@@ -48,6 +48,17 @@ class VarRef(ASTNode):
 
 
 @dataclass
+class BareIdent(ASTNode):
+    """name — bare identifier used as a command arg.
+
+    Resolution order at runtime:
+      1. If a variable with this name exists → return its value.
+      2. Otherwise → return the name as a string literal (e.g. colormap names).
+    """
+    name: str = ""
+
+
+@dataclass
 class IfBlock(ASTNode):
     """IF <var> <op> <value> ... ENDIF"""
     var_name: str = ""

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from pixlang.commands.builtin import _unwrap
 from pixlang.commands.registry import CommandRegistry
 from pixlang.parser.ast_nodes import (
-    Command, IfBlock, Pipeline, RepeatBlock, SetVar, Statement, VarRef,
+    Command, IfBlock, Pipeline, RepeatBlock, SetVar, Statement, VarRef, BareIdent,
     IncludeStmt, AssertStmt, RoiBlock,
 )
 
@@ -215,7 +215,7 @@ class Executor:
     # ── Variable resolution ───────────────────────────────────────────────────
 
     def _resolve(self, value: Any) -> Any:
-        """Resolve a VarRef to its stored value; pass through everything else."""
+        """Resolve a VarRef or BareIdent to its stored value; pass through everything else."""
         if isinstance(value, VarRef):
             name = value.var_name
             if name not in self.context["vars"]:
@@ -224,6 +224,14 @@ class Executor:
                     f"Available: {', '.join('$'+k for k in self.context['vars'])}"
                 )
             return self.context["vars"][name]
+        if isinstance(value, BareIdent):
+            # Variable lookup with string fallback — allows both:
+            #   SET width 640 / RESIZE width height   (variable)
+            #   HEATMAP jet                            (string literal)
+            name = value.name
+            if name in self.context["vars"]:
+                return self.context["vars"][name]
+            return name
         return value
 
 
