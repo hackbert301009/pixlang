@@ -48,6 +48,12 @@ def main():
     np_ = sub.add_parser("new",     help="Scaffold a new pipeline project")
     np_.add_argument("name", help="Project / pipeline name")
 
+    ep = sub.add_parser("editor",  help="Launch the visual editor in a browser")
+    ep.add_argument("--port", type=int, default=7478, metavar="PORT",
+                    help="Port to listen on (default: 7478)")
+    ep.add_argument("--no-browser", action="store_true",
+                    help="Do not open browser automatically")
+
     args = ap.parse_args()
     if args.command is None:
         ap.print_help(); sys.exit(0)
@@ -62,6 +68,7 @@ def main():
         "commands": lambda: _cmd_list_commands(getattr(args,"source",None)),
         "plugins":  _cmd_plugins,
         "new":      lambda: _cmd_new(args.name),
+        "editor":   lambda: _cmd_editor(args.port, args.no_browser),
     }[args.command]()
 
 
@@ -323,6 +330,36 @@ Edit `pipeline.plugins.py` to add project-specific DSL commands.
     print(f"  1. Add your image  →  {slug}/images/input.jpg")
     print(f"  2. {CYAN}pixlang run {slug}/pipeline.pxl --verbose{RESET}")
     print(f"  3. {CYAN}pixlang lint {slug}/pipeline.pxl{RESET}")
+
+
+# ── editor ────────────────────────────────────────────────────────────────────
+
+def _cmd_editor(port: int = 7478, no_browser: bool = False):
+    try:
+        from flask import Flask  # noqa: F401
+    except ImportError:
+        _error(
+            "Flask is required for the editor.\n"
+            "  Install with:  pip install pixlang[editor]\n"
+            "  Or directly:   pip install flask>=3.0"
+        )
+
+    from pixlang.editor.server import app, STATIC_DIR, EXAMPLES_DIR
+
+    print(f"  Editor    : {CYAN}http://localhost:{port}/{RESET}")
+    print(f"  Examples  : {DIM}{EXAMPLES_DIR}{RESET}")
+    print(f"  Static    : {DIM}{STATIC_DIR}{RESET}")
+    print(f"  Press {BOLD}Ctrl+C{RESET} to stop\n")
+
+    if not no_browser:
+        import threading, webbrowser, time as _time
+        def _open():
+            _time.sleep(1.0)
+            webbrowser.open(f"http://localhost:{port}/")
+        threading.Thread(target=_open, daemon=True).start()
+
+    # use_reloader=False prevents double-import of the command registry
+    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
 
 
 # ── Shared utilities ──────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@
 [![CI](https://github.com/hackbert301009/pixlang/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/pixlang/actions)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-218%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-253%20passing-brightgreen)]()
 
 ---
 
@@ -45,6 +45,7 @@ SAVE "output/result.png"
 | Category | Feature |
 |---|---|
 | **Language** | Variables (`SET`/`$ref`), conditionals (`IF`/`ENDIF`), loops (`REPEAT`/`END`), line continuation (`\`) |
+| **Editor** | Browser-based visual editor with flow diagram, CodeMirror, image preview, command search |
 | **Composition** | `INCLUDE` sub-pipelines with shared context |
 | **Validation** | `ASSERT` runtime checks (width, height, channels, min, max, contour_count) |
 | **ROI** | `ROI x y w h … ROI_RESET` — process masked regions, auto-paste back |
@@ -288,12 +289,37 @@ pixlang/
 
 ---
 
+## Visual Editor
+
+A browser-based pipeline editor inspired by Keyence XG-X Vision Editor and Mavitec HD Develop.
+
+```bash
+pip install pixlang[editor]
+pixlang editor              # opens http://localhost:7478/ automatically
+pixlang editor --port 8080  # custom port
+pixlang editor --no-browser # skip auto-open
+```
+
+| Panel | Description |
+|---|---|
+| **Flow Diagram** | Live SVG node-graph of every command, auto-updates as you type, click a node to jump to that line |
+| **Code Editor** | Full PixLang syntax highlighting, lint error underlines, line numbers (CodeMirror 6) |
+| **Image Preview** | Draggable floating panel — shows the pipeline output after each Run, zoom in/out |
+| **Command Docs** | Searchable reference for all 35 built-in commands with signatures and descriptions |
+| **Examples** | One-click load for all 12 built-in example pipelines |
+| **Workspace** | Auto-saved to `~/.pixlang_editor_workspace.json`; export as JSON with Ctrl+Shift+S |
+
+**Keyboard shortcuts:** `F5` Run · `Ctrl+S` Save workspace · `Ctrl+L` Lint · `Ctrl+Shift+S` Export workspace file
+
+---
+
 ## Testing
 
 ```bash
-pytest                    # 218 tests
-pytest --cov=pixlang      # with coverage
-pytest tests/test_v4.py   # v0.4 only
+pytest                      # 253 tests
+pytest --cov=pixlang        # with coverage
+pytest tests/test_editor.py # editor API only
+pytest tests/test_v4.py     # v0.4 only
 ```
 
 ---

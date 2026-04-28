@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PixLang Editor</title>
+  <link rel="stylesheet" href="/static/css/editor.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "codemirror":              "https://esm.sh/codemirror@6.0.1",
+      "@codemirror/view":        "https://esm.sh/@codemirror/view@6.35.3",
+      "@codemirror/state":       "https://esm.sh/@codemirror/state@6.5.2",
+      "@codemirror/language":    "https://esm.sh/@codemirror/language@6.10.8",
+      "@codemirror/commands":    "https://esm.sh/@codemirror/commands@6.8.1",
+      "@codemirror/theme-one-dark": "https://esm.sh/@codemirror/theme-one-dark@6.1.2"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <!-- ── TOOLBAR ─────────────────────────────────────────────────────── -->
+  <div id="toolbar">
+    <span id="logo">&#9632; PixLang</span>
+    <div id="toolbar-sep"></div>
+    <button id="btn-run"  title="Run pipeline (F5)">&#9654; Run</button>
+    <button id="btn-lint" title="Lint code (Ctrl+L)">&#10003; Lint</button>
+    <button id="btn-save" title="Save workspace (Ctrl+S)">&#128190; Save</button>
+    <button id="btn-load" title="Load workspace">&#128194; Load</button>
+    <button id="btn-new"  title="New pipeline">&#43; New</button>
+    <span id="toolbar-status"></span>
+  </div>
+
+  <!-- ── MAIN 3-COLUMN LAYOUT ────────────────────────────────────────── -->
+  <div id="main-layout">
+
+    <!-- LEFT: Flow diagram -->
+    <div id="panel-flow">
+      <div class="panel-header">
+        <span>Flow Diagram</span>
+        <button class="panel-btn" id="btn-flow-refresh" title="Refresh">&#8635;</button>
+      </div>
+      <div id="flow-container">
+        <svg id="flow-svg" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="6"
+                    refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#4a5568"/>
+            </marker>
+          </defs>
+          <g id="flow-graph"></g>
+        </svg>
+      </div>
+    </div>
+
+    <!-- CENTER: Editor + Console -->
+    <div id="panel-center">
+      <div id="editor-container">
+        <div id="codemirror-host"></div>
+      </div>
+      <div id="panel-console">
+        <div class="panel-header" id="console-toggle" title="Toggle console">
+          <span>&#9654; Console</span>
+          <button class="panel-btn" id="btn-console-clear" title="Clear">&#10005;</button>
+        </div>
+        <div id="console-output"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Docs + Examples -->
+    <div id="panel-right">
+      <div id="panel-docs">
+        <div class="panel-header"><span>Commands</span></div>
+        <input type="text" id="cmd-search" placeholder="&#128269; Search commands…" autocomplete="off">
+        <div id="cmd-list"></div>
+      </div>
+      <div id="panel-examples">
+        <div class="panel-header"><span>Examples</span></div>
+        <div id="example-list"></div>
+      </div>
+    </div>
+
+  </div><!-- /#main-layout -->
+
+  <!-- ── FLOATING IMAGE PREVIEW ──────────────────────────────────────── -->
+  <div id="preview-panel" style="display:none">
+    <div id="preview-header">
+      <span>&#128247; Preview</span>
+      <div id="preview-header-btns">
+        <button id="btn-preview-zoom-in"  title="Zoom in">+</button>
+        <button id="btn-preview-zoom-out" title="Zoom out">&#8722;</button>
+        <button id="btn-preview-reset"    title="Reset zoom">&#8635;</button>
+        <button id="btn-preview-close"    title="Close">&#215;</button>
+      </div>
+    </div>
+    <div id="preview-body">
+      <img id="preview-img" src="" alt="Pipeline output" draggable="false">
+    </div>
+    <div id="preview-footer">
+      <span id="preview-info"></span>
+    </div>
+  </div>
+
+  <!-- hidden file input for workspace load -->
+  <input type="file" id="file-load-input" accept=".json,.pxl" style="display:none">
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
