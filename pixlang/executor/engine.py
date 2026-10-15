@@ -10,7 +10,6 @@ New capabilities:
 """
 from __future__ import annotations
 
-import inspect
 import operator
 import time
 from pathlib import Path
@@ -176,16 +175,11 @@ class Executor:
     # ── COMMAND ───────────────────────────────────────────────────────────────
 
     def _exec_command(self, cmd: Command, image: Any) -> Any:
-        fn = self.registry.get(cmd.name)
         resolved_args = [self._resolve(a) for a in cmd.args]
 
         t0 = time.perf_counter()
         try:
-            sig = inspect.signature(fn)
-            if "_ctx" in sig.parameters:
-                image = fn(image, *resolved_args, _ctx=self.context)
-            else:
-                image = fn(image, *resolved_args)
+            image = self.registry.invoke(cmd.name, image, resolved_args, self.context)
         except Exception as exc:
             raise RuntimeError(
                 f"[PixLang] Error at line {cmd.line} "

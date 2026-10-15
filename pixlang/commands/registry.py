@@ -10,8 +10,9 @@ v0.2 additions:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable, Dict, List
+import inspect
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
 
 
 @dataclass
@@ -20,6 +21,8 @@ class CommandInfo:
     fn:     Callable
     source: str   # "builtin" | plugin package name | "local:<path>"
     doc:    str = ""
+    accepts_ctx: bool = False
+    signature: Optional[inspect.Signature] = field(default=None, repr=False)
 
     def __repr__(self):
         return f"<CommandInfo {self.name!r} from={self.source!r}>"
@@ -44,7 +47,15 @@ class CommandRegistry:
                     f"by '{existing.source}'. Pass allow_override=True to shadow it."
                 )
             doc = (fn.__doc__ or "").strip().splitlines()[0] if fn.__doc__ else ""
-            self._commands[key] = CommandInfo(name=key, fn=fn, source=source, doc=doc)
+            try:
+                sig = inspect.signature(fn)
+            except (TypeError, ValueError):
+                sig = None
+            accepts_ctx = sig is not None and "_ctx" in sig.parameters
+            self._commands[key] = CommandInfo(
+                name=key, fn=fn, source=source, doc=doc,
+                accepts_ctx=accepts_ctx, signature=sig,
+            )
             return fn
         return decorator
 
@@ -66,6 +77,19 @@ class CommandRegistry:
         if key not in self._commands:
             raise NameError(f"[PixLang] Unknown command: '{key}'.")
         return self._commands[key]
+
+    def invoke(self, name: str, image: Any, args: List[Any], ctx: Optional[Dict[str, Any]] = None) -> Any:
+        """Run command *name* on *image* with already-resolved *args*.
+
+        Single entry point used by the executor: looks the command up
+        (raising NameError with suggestions if unknown) and passes the
+        execution context only to commands that declare a ``_ctx`` parameter.
+        """
+        self.get(name)  # raises NameError with suggestions
+        info = self._commands[name.upper()]
+        if info.accepts_ctx:
+            return info.fn(image, *args, _ctx=ctx if ctx is not None else {})
+        return info.fn(image, *args)
 
     # ── Introspection ─────────────────────────────────────────────────────────
 
