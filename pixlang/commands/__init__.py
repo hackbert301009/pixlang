@@ -2,13 +2,14 @@
 from .registry import (
     ArgumentError, CommandInfo, CommandRegistry, ConflictError, UnknownCommandError,
 )
-from . import builtin
+from . import builtin, lowlevel
 from pixlang.batch import register_batch_commands
 
 registry = CommandRegistry()
 builtin.register_all(registry)
 builtin.register_v03(registry)
 builtin.register_v04(registry)
+lowlevel.register_v05(registry)
 register_batch_commands(registry)
 
 __all__ = [
