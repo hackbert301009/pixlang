@@ -1056,7 +1056,8 @@ class Executor:
         try:
             return builtin(*args)
         except TypeError as exc:
-            raise self._error(f"{node.func}(): {exc}", node)
+            msg = str(exc).replace(f"_{node.func.lower()}() ", "")
+            raise self._error(f"{node.func}(): {msg}", node)
         except (ValueError, ZeroDivisionError, OverflowError) as exc:
             raise self._error(f"{node.func}(): {exc}", node)
 
