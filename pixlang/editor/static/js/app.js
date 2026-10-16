@@ -502,7 +502,7 @@ function drawFlow() {
     errorLine: r.error_info && r.error_info.kind !== "syntax" ? r.error_info.line : null,
   } : null;
   const res = renderFlowchart($("#flow-svg"), S.tree, {
-    run, scale: S.flowScale,
+    run, scale: S.flowScale, fitWidth: $("#flow-container").clientWidth - 8,
     onJump: (line) => { if (window.innerWidth < 640) setView("code"); jumpTo(view, line); },
   });
   $("#flow-sub").textContent = `${res.count} steps` + (run ? " · last run" : "");
@@ -571,7 +571,7 @@ async function runPipeline({ quiet = false, auto = false } = {}) {
   // Status bar
   const sb = $("#sb-run");
   if (ei) { sb.className = "sb-item sb-run err"; sb.replaceChildren(icon("x-circle", "icon-xs"), `Last run failed${ei.line ? " · line " + ei.line : ""}`); }
-  else { sb.className = "sb-item sb-run ok"; sb.replaceChildren(icon("check-circle", "icon-xs"), `Last run ✓ ${fmtMs(r.stats.total_ms)}`); }
+  else { sb.className = "sb-item sb-run ok"; sb.replaceChildren(icon("check-circle", "icon-xs"), `Last run ${fmtMs(r.stats.total_ms)}`); }
 
   if (ei && !quiet && !auto) {
     if (window.innerWidth >= 640) showBottom("problems");
@@ -780,7 +780,7 @@ function wire() {
 
   document.addEventListener("keydown", (e) => {
     const mod = isMac ? e.metaKey : e.ctrlKey;
-    if (!mod) return;
+    if (!mod || e.defaultPrevented) return;
     const k = e.key.toLowerCase();
     if (k === "s") { e.preventDefault(); saveFile(); }
     else if (k === "enter") { e.preventDefault(); runPipeline(); }
@@ -796,6 +796,12 @@ function wire() {
       if (!stored) { document.documentElement.setAttribute("data-theme", ev.matches ? "light" : "dark"); syncThemeIcon(); }
     });
   } catch { /* old browser */ }
+  let lastFlowW = 0;
+  const redrawFlow = debounce(() => { if (S.tree.length) drawFlow(); }, 120);
+  new ResizeObserver(([e]) => {
+    const w = Math.round(e.contentRect.width);
+    if (w && Math.abs(w - lastFlowW) > 4) { lastFlowW = w; redrawFlow(); }
+  }).observe($("#flow-container"));
   window.addEventListener("pixlang:view", () => { if (S.tree.length) drawFlow(); preview.fit(); });
 }
 

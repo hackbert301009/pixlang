@@ -62,7 +62,6 @@ export function createPreview() {
   }
   function oneToOne() {
     const r = vp.getBoundingClientRect();
-    st.scale = 1 / (window.devicePixelRatio || 1) * (window.devicePixelRatio || 1);
     st.scale = 1;
     st.tx = (r.width - st.nat.w) / 2;
     st.ty = (r.height - st.nat.h) / 2;

@@ -427,6 +427,8 @@ def _clean_message(msg: str) -> str:
     first = msg.strip().splitlines()[0] if msg.strip() else msg
     first = _TAG_RE.sub("", first)
     first = re.sub(r"^[Ll]ine\s+\d+\s*:\s*", "", first)
+    first = re.sub(r"^Error at line \d+\s*(\([^)]*\))?\s*:\s*", "", first)
+    first = _TAG_RE.sub("", first)
     return first.strip() or msg.strip()
 
 

@@ -12,7 +12,7 @@ const PAD = 14;
 const LABEL_GAP = 26;     // space above branch lanes for their labels
 const PILL_H = 18;
 const MIN_W = 112;
-const MAX_W = 280;
+const MAX_W = 300;
 
 let charW = 7.2;          // measured from the mono font once fonts load
 function measureFont() {
@@ -23,7 +23,6 @@ function measureFont() {
   } catch { /* keep default */ }
 }
 
-const collapsed = new Set();   // FUNC group ids the user collapsed (by line)
 const expandedFuncs = new Set();
 
 function nodeText(item) {
@@ -34,7 +33,7 @@ function nodeText(item) {
 
 function stmtWidth(item) {
   const { name, args } = nodeText(item);
-  const w = 12 + 10 + (name.length + (args ? args.length + 1 : 0)) * charW + 52;
+  const w = 14 + (name.length + (args ? args.length + 1 : 0)) * charW + 16 + 62; // + timing badge
   return Math.max(MIN_W, Math.min(MAX_W, Math.round(w)));
 }
 
@@ -107,7 +106,9 @@ export function renderFlowchart(svgEl, tree, opts = {}) {
   const height = (main.length ? bottom : y) + 24;
 
   svgEl.append(ctx.edges, ctx.nodes, ctx.labels);
-  const scale = opts.scale || 1;
+  const avail = opts.fitWidth || 0;
+  const fitScale = avail && width > avail ? Math.max(0.6, avail / width) : 1;
+  const scale = (opts.scale || 1) * fitScale;
   svgEl.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svgEl.setAttribute("width", Math.round(width * scale));
   svgEl.setAttribute("height", Math.round(height * scale));

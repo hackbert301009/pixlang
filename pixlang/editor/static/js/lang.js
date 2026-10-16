@@ -146,7 +146,7 @@ export const pixlangHighlight = HighlightStyle.define([
 // ── Editor chrome theme (CSS variables → follows light/dark) ────────────────
 export const pixlangTheme = EditorView.theme({
   "&": { height: "100%", fontSize: "13px", backgroundColor: "var(--bg-2)", color: "var(--syn-ident)" },
-  ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.7", fontFeatureSettings: '"calt" 1, "liga" 0' },
+  ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.7", fontFeatureSettings: '"calt" 0, "liga" 0' },
   ".cm-content": { padding: "12px 0 40vh", caretColor: "var(--accent)" },
   ".cm-line": { padding: "0 16px 0 12px" },
   ".cm-cursor, .cm-dropCursor": { borderLeft: "2px solid var(--accent)" },
