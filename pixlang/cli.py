@@ -484,7 +484,7 @@ Edit `pipeline.plugins.py`. It is loaded because `pixlang.toml` sets
     print(f"  {S.dim}Next steps:{S.reset}")
     print(f"  1. {S.cyan}cd {slug}{S.reset}")
     print(f"  2. {S.cyan}pixlang run pipeline.pxl --verbose{S.reset}")
-    print(f"  3. Replace images/input.png with your own image")
+    print("  3. Replace images/input.png with your own image")
 
 
 # ── editor ────────────────────────────────────────────────────────────────────

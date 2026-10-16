@@ -4,7 +4,10 @@ import numpy as np
 import pytest
 
 from pixlang.commands.registry import (
-    ArgumentError, CommandRegistry, ConflictError, UnknownCommandError,
+    ArgumentError,
+    CommandRegistry,
+    ConflictError,
+    UnknownCommandError,
 )
 
 

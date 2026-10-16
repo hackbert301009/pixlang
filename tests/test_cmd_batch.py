@@ -4,9 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from pixlang.batch.engine import (
-    BatchRunner, find_glob_commands, iter_commands, static_glob_pattern,
-)
+from pixlang.batch.engine import BatchRunner, find_glob_commands, iter_commands, static_glob_pattern
 from pixlang.commands import registry
 from pixlang.parser import parse
 from pixlang.parser.ast_nodes import ASTNode, Command, Pipeline

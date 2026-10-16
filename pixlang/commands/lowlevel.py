@@ -26,9 +26,22 @@ import cv2
 import numpy as np
 
 from .builtin import (
-    CATEGORIES, _cast, _channels, _command, _cv, _dtype_max, _ensure_gray_raw,
-    _get_buffer, _match_channels, _merge_alpha, _require_image, _split_alpha, _to_u8,
-    _unwrap, _value_max, _wrap,
+    CATEGORIES,
+    _cast,
+    _channels,
+    _command,
+    _cv,
+    _dtype_max,
+    _ensure_gray_raw,
+    _get_buffer,
+    _match_channels,
+    _merge_alpha,
+    _require_image,
+    _split_alpha,
+    _to_u8,
+    _unwrap,
+    _value_max,
+    _wrap,
 )
 
 CATEGORIES.update({

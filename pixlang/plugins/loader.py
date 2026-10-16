@@ -152,7 +152,7 @@ class PluginLoader:
     def reload_changed(self) -> List[PluginManifest]:
         """Re-execute any loaded plugin file whose mtime changed."""
         out = []
-        for tag, (mtime, manifest) in list(self._loaded.items()):
+        for mtime, manifest in list(self._loaded.values()):
             if manifest.source_type == "entrypoint":
                 continue
             path = Path(manifest.source_path)

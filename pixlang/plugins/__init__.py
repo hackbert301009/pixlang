@@ -1,6 +1,10 @@
 # pixlang/plugins/__init__.py
 from .loader import (
-    ENTRY_POINT_GROUP, PluginLoader, PluginManifest, local_plugin_path, trust_from_config,
+    ENTRY_POINT_GROUP,
+    PluginLoader,
+    PluginManifest,
+    local_plugin_path,
+    trust_from_config,
 )
 
 __all__ = [

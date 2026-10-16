@@ -8,6 +8,7 @@ v0.3 test suite:
   - Linter: all 11 rules
   - Watcher: run_once, change detection
 """
+import os
 import textwrap
 import time
 from pathlib import Path
@@ -15,17 +16,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pixlang.parser import parse
-from pixlang.parser.lexer import tokenize
-from pixlang.parser.ast_nodes import (
-    Command, IfBlock, Pipeline, RepeatBlock, SetVar, VarRef,
-)
 from pixlang.commands import registry as _global_registry
+from pixlang.commands.builtin import _unwrap, _wrap, register_all, register_v03
 from pixlang.commands.registry import CommandRegistry
-from pixlang.commands.builtin import register_all, register_v03, _wrap, _unwrap
 from pixlang.executor import Executor
 from pixlang.linter import Linter, Severity
-
+from pixlang.parser import parse
+from pixlang.parser.ast_nodes import Command, IfBlock, Pipeline, RepeatBlock, SetVar, VarRef
+from pixlang.parser.lexer import tokenize
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -250,7 +248,7 @@ class TestExecutorControlFlow:
 
     def test_if_operators(self, reg):
         results = {}
-        for op, expected in [("==", True), ("!=", False), (">", False),
+        for op, _expected in [("==", True), ("!=", False), (">", False),
                               ("<", True), (">=", True), ("<=", True)]:
             count = []
             @reg.register(f"PROBE_{op.replace('=','E').replace('<','L').replace('>','G')}",
@@ -553,7 +551,8 @@ class TestWatcher:
         from pixlang.watcher import Watcher
 
         img_path = tmp_path / "img.jpg"
-        import cv2, numpy as np
+        import cv2
+        import numpy as np
         cv2.imwrite(str(img_path), np.zeros((50, 50, 3), dtype=np.uint8))
 
         pxl = tmp_path / "pipe.pxl"
@@ -598,8 +597,10 @@ class TestWatcher:
         assert w.run_once() is False
 
     def test_change_detection(self, tmp_path, reg):
+        import cv2
+        import numpy as np
+
         from pixlang.watcher import Watcher
-        import cv2, numpy as np
 
         img_path = tmp_path / "img.jpg"
         cv2.imwrite(str(img_path), np.zeros((20, 20, 3), dtype=np.uint8))
@@ -614,13 +615,15 @@ class TestWatcher:
 
         time.sleep(0.05)
         pxl.write_text(f'LOAD "{img_path}"\nGRAYSCALE\nSAVE "{tmp_path}/o.png"\n')
-        import os; os.utime(pxl, None)      # force mtime bump
+        os.utime(pxl, None)                 # force mtime bump
 
         assert w._changed()                 # now changed
 
     def test_increments_run_count(self, tmp_path, reg):
+        import cv2
+        import numpy as np
+
         from pixlang.watcher import Watcher
-        import cv2, numpy as np
 
         img = tmp_path / "i.jpg"
         cv2.imwrite(str(img), np.zeros((20,20,3), dtype=np.uint8))

@@ -1,9 +1,14 @@
 # pixlang/commands/__init__.py
-from .registry import (
-    ArgumentError, CommandInfo, CommandRegistry, ConflictError, UnknownCommandError,
-)
-from . import builtin, lowlevel
 from pixlang.batch import register_batch_commands
+
+from . import builtin, lowlevel
+from .registry import (
+    ArgumentError,
+    CommandInfo,
+    CommandRegistry,
+    ConflictError,
+    UnknownCommandError,
+)
 
 registry = CommandRegistry()
 builtin.register_all(registry)
