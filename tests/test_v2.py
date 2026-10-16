@@ -8,20 +8,19 @@ v0.2 test suite — covers:
   - End-to-end pipeline with new commands
 """
 import os
-import textwrap
 import tempfile
+import textwrap
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from pixlang.commands import registry as _base_registry
-from pixlang.commands.registry import CommandRegistry, ConflictError, CommandInfo
-from pixlang.commands.builtin import register_all, _wrap, _unwrap
-from pixlang.plugins.loader import PluginLoader
+from pixlang.commands.builtin import _unwrap, _wrap, register_all
+from pixlang.commands.registry import CommandInfo, CommandRegistry, ConflictError
 from pixlang.executor import Executor
 from pixlang.parser import parse
-
+from pixlang.plugins.loader import PluginLoader
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures
