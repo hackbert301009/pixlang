@@ -26,6 +26,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(_srv, "WORKSPACE_FILE", tmp_path / "test_workspace.json")
     app.config["TESTING"] = True
     with app.test_client() as c:
+        # API calls require the per-process editor token (CSRF protection).
+        c.environ_base["HTTP_X_PIXLANG_TOKEN"] = app.config["PIXLANG_TOKEN"]
         yield c
 
 
