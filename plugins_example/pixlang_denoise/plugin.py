@@ -7,7 +7,7 @@ An example third-party PixLang plugin that adds advanced denoising commands.
 This demonstrates the entry-point plugin pattern.
 
 To install and activate:
-    pip install -e plugins_example/pixlang_denoise/
+    pip install -e plugins_example/
 
 Once installed, `pixlang commands` will show these commands under
 source "pixlang-denoise", and they work in any .pxl pipeline automatically.

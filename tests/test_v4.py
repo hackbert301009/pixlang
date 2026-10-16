@@ -34,27 +34,32 @@ v0.4 test suite:
     - lint command exits 0 on clean, 1 on errors
     - validate shows ASSERT/INCLUDE/ROI in AST dump
 """
-import textwrap
 import shutil
+import textwrap
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
-from pixlang.parser import parse
-from pixlang.parser.lexer import tokenize
-from pixlang.parser.ast_nodes import (
-    Command, IfBlock, Pipeline, RepeatBlock,
-    IncludeStmt, AssertStmt, RoiBlock, SetVar,
-)
-from pixlang.commands import registry as _global_registry
-from pixlang.commands.registry import CommandRegistry
-from pixlang.commands.builtin import register_all, register_v03, register_v04, _wrap, _unwrap
 from pixlang.batch import register_batch_commands
+from pixlang.commands import registry as _global_registry
+from pixlang.commands.builtin import _unwrap, _wrap, register_all, register_v03, register_v04
+from pixlang.commands.registry import CommandRegistry
 from pixlang.executor import Executor
 from pixlang.linter import Linter
-
+from pixlang.parser import parse
+from pixlang.parser.ast_nodes import (
+    AssertStmt,
+    Command,
+    IfBlock,
+    IncludeStmt,
+    Pipeline,
+    RepeatBlock,
+    RoiBlock,
+    SetVar,
+)
+from pixlang.parser.lexer import tokenize
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -372,7 +377,7 @@ class TestExecutorROI:
             img_in, meta = _unwrap(image)
             return np.zeros_like(img_in)
 
-        from pixlang.parser.ast_nodes import RoiBlock, Command
+        from pixlang.parser.ast_nodes import Command, RoiBlock
         roi = RoiBlock(x=0, y=0, w=50, h=50, line=1,
                        body=[Command(name="MAKE_BLACK", args=[], line=2)])
         ex = Executor(registry=reg)
@@ -387,7 +392,7 @@ class TestExecutorROI:
     def test_roi_pastes_result_back(self, reg):
         """Full image shape must be preserved after ROI."""
         img    = bgr(200, 300)
-        from pixlang.parser.ast_nodes import RoiBlock, Command
+        from pixlang.parser.ast_nodes import Command, RoiBlock
         roi = RoiBlock(x=10, y=10, w=50, h=40, line=1,
                        body=[Command(name="GRAYSCALE", args=[], line=2)])
         ex = Executor(registry=reg)
@@ -405,7 +410,7 @@ class TestExecutorROI:
 
     def test_roi_var_resolved(self, reg):
         """ROI coordinates can be $variables."""
-        from pixlang.parser.ast_nodes import RoiBlock, Command, VarRef
+        from pixlang.parser.ast_nodes import Command, RoiBlock, VarRef
         img = bgr(100, 100)
         roi = RoiBlock(
             x=VarRef(var_name="rx", line=1),
@@ -423,7 +428,7 @@ class TestExecutorROI:
     def test_roi_clamps_to_bounds(self, reg):
         """ROI that extends past image edge should be clamped."""
         img = bgr(50, 50)
-        from pixlang.parser.ast_nodes import RoiBlock, Command
+        from pixlang.parser.ast_nodes import Command, RoiBlock
         # x=30, y=30, w=100, h=100 — extends well past 50x50
         roi = RoiBlock(x=30, y=30, w=100, h=100, line=1,
                        body=[Command(name="BLUR", args=[3], line=2)])
@@ -678,17 +683,18 @@ class TestBatch:
         fn(img, str(tmp_path / "out_{index1}.png"), _ctx=ctx)
         assert (tmp_path / "out_5.png").exists()
 
-    def test_batch_runner_single_file(self, tmp_path, reg):
+    def test_batch_runner_single_file(self, tmp_path, reg, monkeypatch):
         from pixlang.batch.engine import BatchRunner
+        monkeypatch.chdir(tmp_path)   # SAVE_EACH paths are relative to the CWD
         img_path = tmp_path / "img.jpg"
         cv2.imwrite(str(img_path), np.zeros((40, 60, 3), dtype=np.uint8))
         out_dir = tmp_path / "out"
 
         pxl = tmp_path / "pipe.pxl"
         pxl.write_text(
-            f'LOAD_GLOB "*.jpg"\n'
-            f'GRAYSCALE\n'
-            f'SAVE_EACH "out/{{stem}}.png"\n'
+            'LOAD_GLOB "*.jpg"\n'
+            'GRAYSCALE\n'
+            'SAVE_EACH "out/{stem}.png"\n'
         )
         pipeline = parse(pxl.read_text())
         runner   = BatchRunner(pipeline, reg, pipeline_path=pxl)
@@ -697,8 +703,9 @@ class TestBatch:
         assert results["total"] == 1
         assert results["failed"] == 0
 
-    def test_batch_runner_multiple_files(self, tmp_path, reg):
+    def test_batch_runner_multiple_files(self, tmp_path, reg, monkeypatch):
         from pixlang.batch.engine import BatchRunner
+        monkeypatch.chdir(tmp_path)   # SAVE_EACH paths are relative to the CWD
         self._make_images(tmp_path, 3)
         out_dir = tmp_path / "out"
 
@@ -710,6 +717,17 @@ class TestBatch:
         assert results["total"] == 3
         assert results["ok"]    == 3
         assert results["failed"] == 0
+        # Each file must be processed (not the first file three times)
+        outs = []
+        for i in range(3):
+            out = out_dir / f"img_{i:02d}.png"
+            assert out.exists(), out
+            src = cv2.cvtColor(cv2.imread(str(tmp_path / f"img_{i:02d}.jpg")),
+                               cv2.COLOR_BGR2GRAY)
+            got = cv2.imread(str(out), cv2.IMREAD_UNCHANGED)
+            np.testing.assert_array_equal(got, src)
+            outs.append(got)
+        assert not np.array_equal(outs[0], outs[1])
 
     def test_plain_pipeline_batch_runner_single_run(self, tmp_path, reg):
         """BatchRunner on a pipeline without LOAD_GLOB falls back to single run."""
@@ -778,8 +796,9 @@ class TestConfig:
         assert cfg.output_dir == "results"
 
     def test_broken_toml_returns_defaults(self, tmp_path):
-        from pixlang.config import load_config
         import warnings
+
+        from pixlang.config import load_config
         (tmp_path / "pixlang.toml").write_text("@@@@broken@@@@\n")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -793,16 +812,19 @@ class TestConfig:
 
 class TestCLIV4:
 
-    def test_version_is_040(self):
-        import subprocess, sys
+    def test_version_matches_package(self):
+        import subprocess
+        import sys
         result = subprocess.run(
             [sys.executable, "-m", "pixlang.cli", "--version"],
             capture_output=True, text=True
         )
-        assert "0.4.0" in result.stdout + result.stderr
+        import pixlang
+        assert pixlang.__version__ in result.stdout + result.stderr
 
     def test_lint_clean_exit_0(self, tmp_path):
-        import subprocess, sys
+        import subprocess
+        import sys
         pxl = tmp_path / "clean.pxl"
         pxl.write_text(
             'LOAD "img.png"\nGRAYSCALE\nBLUR 5\nSAVE "out.png"\n'
@@ -814,7 +836,8 @@ class TestCLIV4:
         assert result.returncode == 0
 
     def test_lint_error_exit_1(self, tmp_path):
-        import subprocess, sys
+        import subprocess
+        import sys
         pxl = tmp_path / "bad.pxl"
         pxl.write_text("GRAYSCALE\n")  # PX001: no LOAD
         result = subprocess.run(
@@ -825,7 +848,8 @@ class TestCLIV4:
         assert "PX001" in result.stdout
 
     def test_validate_shows_assert_node(self, tmp_path):
-        import subprocess, sys
+        import subprocess
+        import sys
         pxl = tmp_path / "with_assert.pxl"
         pxl.write_text('LOAD "x.jpg"\nASSERT width == 640\nSAVE "y.png"\n')
         result = subprocess.run(
@@ -835,7 +859,8 @@ class TestCLIV4:
         assert result.returncode == 0
 
     def test_commands_lists_new_v4(self):
-        import subprocess, sys
+        import subprocess
+        import sys
         result = subprocess.run(
             [sys.executable, "-m", "pixlang.cli", "commands"],
             capture_output=True, text=True
@@ -850,6 +875,15 @@ class TestCLIV4:
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestEndToEndV4:
+
+    @pytest.fixture(autouse=True)
+    def _isolated_examples(self, tmp_path, monkeypatch):
+        """Run example pipelines on a copy so nothing is written into the repo."""
+        import shutil
+        repo = Path(__file__).resolve().parent.parent
+        shutil.copytree(repo / "examples", tmp_path / "examples",
+                        ignore=shutil.ignore_patterns("*.png", "batch_out", "out"))
+        monkeypatch.chdir(tmp_path)
 
     def test_roi_assert_pipeline(self):
         from pixlang.commands import registry

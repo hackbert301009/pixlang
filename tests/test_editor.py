@@ -285,7 +285,8 @@ class TestCommandsEndpoint:
 
     def test_returns_35_commands(self, client):
         data = client.get("/api/commands").get_json()
-        assert len(data["commands"]) == 35
+        from pixlang.commands import registry
+        assert len(data["commands"]) == len(registry)
 
     def test_command_has_required_fields(self, client):
         cmd = client.get("/api/commands").get_json()["commands"][0]
