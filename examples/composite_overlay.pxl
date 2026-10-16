@@ -6,7 +6,11 @@
 #   3. Draw bounding boxes on a clean canvas
 #   4. Blend the annotation layer back over the original colour image
 #
-# Run: pixlang run examples/composite_overlay.pxl --verbose
+# Run: pixlang run examples/composite_overlay.pxl --verbose --trust-plugins
+#
+# The local plugin file (composite_overlay.plugins.py) is Python code, so it
+# is only loaded when you opt in with --trust-plugins (or
+# `[plugins] trust_local = true` in pixlang.toml).
 
 LOAD "examples/sample.jpg"
 RESIZE 640 480
@@ -31,7 +35,7 @@ DRAW_TEXT "OBJECT DETECTION" 12 35 1.0 255 255 80 2 "duplex"
 DRAW_TEXT "v0.2 composite" 12 465 0.7 180 180 180 1 "simplex"
 
 # ── STAMP_VERSION is provided by composite_overlay.plugins.py ──
-# It is auto-loaded because it shares the pipeline's stem name.
+# It is loaded (with --trust-plugins) because it shares the pipeline's stem name.
 STAMP_VERSION "v0.2"
 
 SAVE "examples/composite_overlay.png"

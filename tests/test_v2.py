@@ -318,7 +318,7 @@ class TestPluginLoader:
         plugin_file = tmp_path / "my_pipe.plugins.py"
         plugin_file.write_text(self._make_plugin_source("LOCAL_CMD"))
 
-        loader = PluginLoader(fresh_registry)
+        loader = PluginLoader(fresh_registry, trust_local=True)
         manifest = loader.load_local(pipeline_file)
 
         assert manifest is not None
