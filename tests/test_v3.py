@@ -639,6 +639,15 @@ class TestWatcher:
 
 class TestEndToEndV3:
 
+    @pytest.fixture(autouse=True)
+    def _isolated_examples(self, tmp_path, monkeypatch):
+        """Run example pipelines on a copy so nothing is written into the repo."""
+        import shutil
+        repo = Path(__file__).resolve().parent.parent
+        shutil.copytree(repo / "examples", tmp_path / "examples",
+                        ignore=shutil.ignore_patterns("*.png", "batch_out", "out"))
+        monkeypatch.chdir(tmp_path)
+
     def test_control_flow_pipeline(self):
         """Full control_flow.pxl pipeline runs without error."""
         from pixlang.commands import registry
