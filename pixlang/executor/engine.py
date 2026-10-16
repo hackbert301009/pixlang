@@ -345,7 +345,7 @@ class Executor:
         try:
             yield scope
         finally:
-            self._frame.scopes.remove(scope)
+            self._frame.scopes.pop()
             if mirror_iter:
                 for k in ("ITER", "ITER1"):
                     if k in saved:
