@@ -678,8 +678,9 @@ class TestBatch:
         fn(img, str(tmp_path / "out_{index1}.png"), _ctx=ctx)
         assert (tmp_path / "out_5.png").exists()
 
-    def test_batch_runner_single_file(self, tmp_path, reg):
+    def test_batch_runner_single_file(self, tmp_path, reg, monkeypatch):
         from pixlang.batch.engine import BatchRunner
+        monkeypatch.chdir(tmp_path)   # SAVE_EACH paths are relative to the CWD
         img_path = tmp_path / "img.jpg"
         cv2.imwrite(str(img_path), np.zeros((40, 60, 3), dtype=np.uint8))
         out_dir = tmp_path / "out"
@@ -697,8 +698,9 @@ class TestBatch:
         assert results["total"] == 1
         assert results["failed"] == 0
 
-    def test_batch_runner_multiple_files(self, tmp_path, reg):
+    def test_batch_runner_multiple_files(self, tmp_path, reg, monkeypatch):
         from pixlang.batch.engine import BatchRunner
+        monkeypatch.chdir(tmp_path)   # SAVE_EACH paths are relative to the CWD
         self._make_images(tmp_path, 3)
         out_dir = tmp_path / "out"
 
@@ -710,6 +712,17 @@ class TestBatch:
         assert results["total"] == 3
         assert results["ok"]    == 3
         assert results["failed"] == 0
+        # Each file must be processed (not the first file three times)
+        outs = []
+        for i in range(3):
+            out = out_dir / f"img_{i:02d}.png"
+            assert out.exists(), out
+            src = cv2.cvtColor(cv2.imread(str(tmp_path / f"img_{i:02d}.jpg")),
+                               cv2.COLOR_BGR2GRAY)
+            got = cv2.imread(str(out), cv2.IMREAD_UNCHANGED)
+            np.testing.assert_array_equal(got, src)
+            outs.append(got)
+        assert not np.array_equal(outs[0], outs[1])
 
     def test_plain_pipeline_batch_runner_single_run(self, tmp_path, reg):
         """BatchRunner on a pipeline without LOAD_GLOB falls back to single run."""
