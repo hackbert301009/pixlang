@@ -806,13 +806,14 @@ class TestConfig:
 
 class TestCLIV4:
 
-    def test_version_is_040(self):
+    def test_version_matches_package(self):
         import subprocess, sys
         result = subprocess.run(
             [sys.executable, "-m", "pixlang.cli", "--version"],
             capture_output=True, text=True
         )
-        assert "0.4.0" in result.stdout + result.stderr
+        import pixlang
+        assert pixlang.__version__ in result.stdout + result.stderr
 
     def test_lint_clean_exit_0(self, tmp_path):
         import subprocess, sys
