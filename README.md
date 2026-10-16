@@ -6,10 +6,10 @@
 
 **A minimal, human-readable DSL for computer vision pipelines.**
 
-[![CI](https://github.com/hackbert301009/pixlang/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/pixlang/actions)
+[![CI](https://github.com/hackbert301009/pixlang/actions/workflows/ci.yml/badge.svg)](https://github.com/hackbert301009/pixlang/actions)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-253%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-799%20passing-brightgreen)]()
 
 ---
 
@@ -44,24 +44,24 @@ SAVE "output/result.png"
 
 | Category | Feature |
 |---|---|
-| **Language** | Variables (`SET`/`$ref`), conditionals (`IF`/`ENDIF`), loops (`REPEAT`/`END`), line continuation (`\`) |
-| **Editor** | Browser-based visual editor with flow diagram, CodeMirror, image preview, command search |
+| **Language** | Expressions (`+ - * / & \| ^ << >>`), `IF/ELIF/ELSE`, `WHILE`, `FOR`, `REPEAT`, `FUNC`/`RETURN`, typed **buffers & pointers** (`ALLOC`, `&buf[..]`, `*p`), **modules + linker** (`IMPORT`/`EXPORT`) — see [docs/LANGUAGE.md](docs/LANGUAGE.md) |
+| **Editor** | Browser IDE: autocomplete, hover docs, live lint, compare slider, flow diagram, dark/light theme |
 | **Composition** | `INCLUDE` sub-pipelines with shared context |
 | **Validation** | `ASSERT` runtime checks (width, height, channels, min, max, contour_count) |
 | **ROI** | `ROI x y w h … ROI_RESET` — process masked regions, auto-paste back |
 | **Batch** | `LOAD_GLOB` + `SAVE_EACH` — multi-file runs with template filenames |
-| **Plugins** | Entry-points, local `.plugins.py`, directory discovery |
-| **Linter** | 11 rules, `pixlang lint`, integrated into watch mode |
+| **Plugins** | Entry-points (auto), local `.plugins.py` / directory (opt-in via `--trust-plugins`) |
+| **Linter** | 12 rules, `pixlang lint`, integrated into watch mode |
 | **Watch** | `pixlang watch` — file-change polling with auto-rerun |
 | **Config** | `pixlang.toml` — project-level variables, defaults, lint overrides |
-| **35 commands** | I/O · Geometry · Color · Threshold · Filter · Morphology · Analysis · Annotation |
+| **71 commands** | I/O · Geometry · Color · Threshold · Filter · Morphology · Analysis · Annotation · Depth · Bitwise · LUT · Channels · Raw/embedded |
 
 ---
 
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/pixlang.git
+git clone https://github.com/hackbert301009/pixlang.git
 cd pixlang
 pip install -e .
 
@@ -75,13 +75,16 @@ pixlang run examples/pipeline.pxl --verbose
 ## CLI Reference
 
 ```bash
-pixlang run      pipeline.pxl [--verbose] [--no-plugins] [--batch]
+pixlang run      pipeline.pxl [--verbose] [--no-plugins] [--trust-plugins] [--var k=v]
+pixlang batch    pipeline.pxl [--var k=v]
+pixlang link     pipeline.pxl [--map]
 pixlang lint     pipeline.pxl
 pixlang watch    pipeline.pxl [--verbose] [--interval 0.5]
 pixlang validate pipeline.pxl
-pixlang commands [--source builtin]
+pixlang commands [--source builtin] [--category Bitwise]
 pixlang plugins
 pixlang new      <project-name>
+pixlang editor   [--port 7478] [--workspace DIR] [--timeout 30] [--no-plugins]
 pixlang --version
 ```
 
@@ -136,6 +139,53 @@ END
 # $ITER = 0-based, $ITER1 = 1-based counter inside loop
 ```
 
+### Expressions, Functions & Loops (v0.5)
+```
+SET w ($width / 2) + 8          # arithmetic, bit ops: & | ^ ~ << >>
+IF $w > 100 and $mode == "fast"
+    BLUR 3
+ELIF $w > 50
+    BLUR 5
+ELSE
+    BLUR 7
+ENDIF
+
+FOR i = 0 TO 4 STEP 2
+    RESIZE ($w + $i) 240        # expressions in command args need ( )
+END
+
+FUNC clamp(v, lo, hi)
+    IF $v < $lo
+        RETURN $lo
+    ENDIF
+    RETURN min($v, $hi)
+ENDFUNC
+```
+
+### Buffers & Pointers (v0.5)
+```
+ALLOC canvas 640 480 3 u8 0     # typed memory: u8 i8 u16 i16 i32 u32 f32 f64
+LOAD "photo.png"
+BUF orig                        # keep a copy of the current image
+SET px orig[12, 40, 2]          # PEEK a pixel
+SET orig[12, 40, 2] 255         # POKE a pixel
+SET p &orig[10:110, 20:220]     # pointer = live view into the buffer
+WITH *p
+    BLUR 5                      # works in place on the region
+END
+SET mask (orig & 0xF0) | (orig >> 4)   # whole-buffer bit ops, wraparound like hardware
+FREE orig                       # a stale pointer now raises "use-after-free"
+```
+
+### Modules & Linker (v0.5)
+```
+FROM "lib/filters.pxl" IMPORT SHARPEN_TWICE, clamp
+IMPORT "lib/geometry.pxl" AS geo
+SHARPEN_TWICE 3
+geo.FIT 640 480
+```
+`pixlang link main.pxl --map` resolves every import across files and reports cycles, duplicate exports, undefined symbols and unused imports with `file:line:col`.
+
 ### Pipeline Composition
 ```
 LOAD "image.jpg"
@@ -180,7 +230,7 @@ Template vars: `{stem}` `{name}` `{ext}` `{index}` `{index1}` `{dir}`
 ## Command Summary
 
 <details>
-<summary>View all 35 commands</summary>
+<summary>View all commands (run <code>pixlang commands</code> for usage)</summary>
 
 **I/O:** `LOAD` `SAVE` `PRINT_INFO` `LOAD_GLOB` `SAVE_EACH`
 
@@ -200,6 +250,14 @@ Template vars: `{stem}` `{name}` `{ext}` `{index}` `{index1}` `{dir}`
 
 **Compositing:** `CHECKPOINT` `OVERLAY` `BLEND`
 
+**Depth / Bitwise / LUT:** `CONVERT_DEPTH` `CONVERT_SCALE` `BITWISE_AND|OR|XOR|NOT` `SHIFT_LEFT|RIGHT` `BIT_PLANE` `MASK` `GAMMA` `POSTERIZE` `LUT` `DITHER`
+
+**Channels:** `EXTRACT_CHANNEL` `MERGE_CHANNELS` `SWAP_RB` `DROP_ALPHA` `ADD_ALPHA` `CVT_COLOR` `IN_RANGE`
+
+**Raw / embedded:** `SAVE_RAW` `LOAD_RAW` `EXPORT_C_ARRAY` `BYTESWAP` — e.g. `DITHER` + `EXPORT_C_ARRAY "logo.h" logo gray8` turns an image into a C header for microcontrollers
+
+**More CV:** `STATS` `CLAHE` `FILTER2D` `SOBEL` `LAPLACIAN` `MORPH` `PAD` `ROTATE90` `WARP_PERSPECTIVE` `CONNECTED_COMPONENTS` `ABSDIFF`
+
 </details>
 
 ---
@@ -209,8 +267,12 @@ Template vars: `{stem}` `{name}` `{ext}` `{index}` `{index1}` `{dir}`
 Three discovery mechanisms, tried in order:
 
 1. **Entry-points** — any installed package declaring `[project.entry-points."pixlang.commands"]`
-2. **Local file** — `pipeline.plugins.py` auto-loaded alongside the `.pxl` file
+2. **Local file** — `pipeline.plugins.py` next to the `.pxl` file
 3. **Directory** — `~/.pixlang/plugins/` or `$PIXLANG_PLUGIN_DIR`
+
+> **Security:** local and directory plugins run arbitrary Python, so they load only with
+> `pixlang run x.pxl --trust-plugins` or `[plugins] trust_local = true` in `pixlang.toml`.
+> Pip-installed entry-point plugins load automatically.
 
 **Writing a plugin:**
 ```python
@@ -227,7 +289,7 @@ def register(registry):
         return result
 ```
 
-Drop it in `~/.pixlang/plugins/` — it's available immediately.
+Drop it in `~/.pixlang/plugins/` and run with `--trust-plugins`.
 
 ---
 
@@ -270,6 +332,9 @@ PixLang searches for `pixlang.toml` in the pipeline directory and parent directo
 | PX009 | INFO | Empty pipeline |
 | PX010 | WARNING | THRESHOLD before GRAYSCALE |
 | PX011 | ERROR | Unknown command name |
+| PX012 | WARNING | Bare word looks like a typo of a defined variable |
+
+Rule crashes are reported as `PX000`; ignore rules with `[lint] ignore = [...]`.
 
 ---
 
@@ -277,9 +342,10 @@ PixLang searches for `pixlang.toml` in the pipeline directory and parent directo
 
 ```
 pixlang/
-├── parser/         lexer → AST → recursive descent parser
-├── commands/       registry + 35 built-in OpenCV handlers
-├── executor/       AST walker, variable store, IF/REPEAT/ROI/INCLUDE/ASSERT
+├── parser/         lexer → Pratt expression parser → AST, caret diagnostics
+├── linker/         object units, symbol resolution, IMPORT/INCLUDE linking
+├── commands/       registry (arity, type coercion, usage) + built-in OpenCV handlers
+├── executor/       linked-program runner: frames, buffers/pointers, loops, functions
 ├── plugins/        three-tier discovery loader
 ├── linter/         11-rule static analyser
 ├── watcher/        polling file-change detector
@@ -291,32 +357,32 @@ pixlang/
 
 ## Visual Editor
 
-A browser-based pipeline editor inspired by Keyence XG-X Vision Editor and Mavitec HD Develop.
+`pixlang editor` opens a local, browser-based IDE for the current directory (the *workspace*).
 
 ```bash
 pip install pixlang[editor]
-pixlang editor              # opens http://localhost:7478/ automatically
-pixlang editor --port 8080  # custom port
-pixlang editor --no-browser # skip auto-open
+pixlang editor                      # http://localhost:7478/
+pixlang editor --workspace ./proj   # confine file access to a directory
+pixlang editor --timeout 60 --no-plugins
 ```
 
-| Panel | Description |
-|---|---|
-| **Flow Diagram** | Live SVG node-graph of every command, auto-updates as you type, click a node to jump to that line |
-| **Code Editor** | Full PixLang syntax highlighting, lint error underlines, line numbers (CodeMirror 6) |
-| **Image Preview** | Draggable floating panel — shows the pipeline output after each Run, zoom in/out |
-| **Command Docs** | Searchable reference for all 35 built-in commands with signatures and descriptions |
-| **Examples** | One-click load for all 12 built-in example pipelines |
-| **Workspace** | Auto-saved to `~/.pixlang_editor_workspace.json`; export as JSON with Ctrl+Shift+S |
+- **Editor:** syntax highlighting, autocomplete (commands with argument snippets, keywords, `$variables`, buffers, `FUNC` names), hover docs, live lint markers and search (CodeMirror 6).
+- **Running:** `Ctrl/Cmd+Enter` or *Auto* re-run. The preview supports zoom/pan, a before/after compare slider and a strip of every `CHECKPOINT`/buffer.
+- **Feedback:** Problems panel (lint + runtime errors with line/col, click to jump), Output and per-command Timing.
+- **Flow:** live flow diagram with nested `IF/ELIF/ELSE`, loops, `ROI`/`WITH` and `FUNC` blocks and per-step timing.
+- **Files:** open/save `.pxl` files in the workspace (`Ctrl/Cmd+S`), bundled examples, `Ctrl/Cmd+K` command palette, dark and light theme.
 
-**Keyboard shortcuts:** `F5` Run · `Ctrl+S` Save workspace · `Ctrl+L` Lint · `Ctrl+Shift+S` Export workspace file
+Relative `LOAD`/`SAVE`/`INCLUDE` paths resolve against the opened file's folder, like `pixlang run`.
+The server listens on 127.0.0.1 only; API calls need a per-session token, foreign origins are rejected,
+file access is confined to the workspace and runs time out. Front-end dependencies are vendored —
+to rebuild them see `pixlang/editor/static/vendor/BUILD.md`.
 
 ---
 
 ## Testing
 
 ```bash
-pytest                      # 253 tests
+pytest                      # 799 tests
 pytest --cov=pixlang        # with coverage
 pytest tests/test_editor.py # editor API only
 pytest tests/test_v4.py     # v0.4 only
@@ -326,11 +392,10 @@ pytest tests/test_v4.py     # v0.4 only
 
 ## Roadmap
 
-- [ ] v0.5 — `FOR file IN glob … END` explicit loop syntax
-- [ ] v0.5 — `FUNC name … END` / `CALL name` user-defined commands
+- [x] v0.5 — expressions, `FUNC`, `WHILE`/`FOR`, typed buffers & pointers, linker, hardware-near commands, editor redesign
+- [ ] v0.6 — IR/bytecode stage with `pixlang dis` and an editor step-debugger
 - [ ] v0.6 — ONNX model inference (`INFER model.onnx`)
-- [ ] v0.6 — Named ROI with labels (`ROI_NAME "bolt_zone" …`)
-- [ ] v0.7 — Web UI editor with live preview
+- [ ] v0.7 — compile cache for linked modules, tiling for very large images
 - [ ] v1.0 — Language spec, stable API, PyPI release
 
 ---

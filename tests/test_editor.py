@@ -18,7 +18,7 @@ flask = pytest.importorskip("flask")
 
 # Patch WORKSPACE_FILE before importing server so tests never touch ~/.pixlang…
 import pixlang.editor.server as _srv  # noqa: E402 (import after importorskip)
-from pixlang.editor.server import app, EXAMPLES_DIR  # noqa: E402
+from pixlang.editor.server import EXAMPLES_DIR, app  # noqa: E402
 
 
 @pytest.fixture
@@ -404,17 +404,17 @@ class TestWorkspaceEndpoint:
 class TestCapturingExecutor:
 
     def test_final_image_none_on_empty_pipeline(self):
-        from pixlang.editor.server import _CapturingExecutor
         from pixlang.commands import registry
+        from pixlang.editor.server import _CapturingExecutor
         from pixlang.parser import parse
         ex = _CapturingExecutor(registry=registry)
         ex.run(parse(""))
         assert ex.final_image is None
 
     def test_final_image_captured_after_grayscale(self, tmp_path):
+        from pixlang.commands import registry
         from pixlang.commands.builtin import _unwrap
         from pixlang.editor.server import _CapturingExecutor
-        from pixlang.commands import registry
         from pixlang.parser import parse
         img_path = _make_image(tmp_path, shape=(20, 20, 3))
         ex = _CapturingExecutor(registry=registry)
@@ -459,8 +459,8 @@ class TestCapturingExecutor:
 class TestFlowDiagram:
 
     def _parse_and_serialize(self, code):
+        from pixlang.editor.server import _reset_id, _serialize_stmts
         from pixlang.parser import parse
-        from pixlang.editor.server import _serialize_stmts, _reset_id
         _reset_id()
         pipeline = parse(code)
         nodes, edges, first, last = _serialize_stmts(pipeline.commands)

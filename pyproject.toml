@@ -87,6 +87,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011", "E712", "F401", "F811", "F841"]
+# The executor deliberately re-wraps errors as PixRuntimeError carrying line/col.
+"pixlang/executor/engine.py" = ["B904"]
 
 [tool.ruff.lint.isort]
 split-on-trailing-comma = false

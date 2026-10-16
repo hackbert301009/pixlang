@@ -135,8 +135,8 @@ class TestSecurity:
 
 class TestTimeout:
     def test_run_timeout_reported(self, ws, monkeypatch):
-        from pixlang.commands.registry import CommandRegistry
         from pixlang.commands import registry as base
+        from pixlang.commands.registry import CommandRegistry
         reg = CommandRegistry()
         reg._commands = dict(base._commands)
 
@@ -285,6 +285,7 @@ class TestFlowTree:
     def test_generic_unknown_node(self):
         from dataclasses import dataclass, field
         from typing import Any, List
+
         from pixlang.parser.ast_nodes import ASTNode, Command, VarRef
 
         @dataclass

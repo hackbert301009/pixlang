@@ -3,9 +3,9 @@
 Unit tests for the PixLang parser layer.
 """
 import pytest
+
 from pixlang.parser import parse
 from pixlang.parser.lexer import tokenize
-
 
 # ── Lexer tests ───────────────────────────────────────────────────────────────
 

@@ -30,12 +30,13 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from dataclasses import fields as dc_fields, is_dataclass
+from dataclasses import fields as dc_fields
+from dataclasses import is_dataclass
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
-from flask import Flask, Response, abort, jsonify, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, request
 
 from pixlang.commands import registry as pxl_registry
 from pixlang.commands.builtin import _unwrap
@@ -44,8 +45,22 @@ from pixlang.executor.engine import Executor
 from pixlang.linter import Linter
 from pixlang.parser import parse as pxl_parse
 from pixlang.parser.ast_nodes import (
-    ASTNode, AssertStmt, BareIdent, Command, IfBlock, IncludeStmt, Pipeline,
-    RepeatBlock, RoiBlock, SetVar, VarRef,
+    AllocStmt,
+    AssertStmt,
+    ASTNode,
+    BareIdent,
+    Command,
+    Expr,
+    ForBlock,
+    IfBlock,
+    IncludeStmt,
+    Pipeline,
+    RepeatBlock,
+    RoiBlock,
+    SetVar,
+    VarRef,
+    WhileBlock,
+    expr_source,
 )
 
 # ── Path constants ────────────────────────────────────────────────────────────
@@ -124,6 +139,8 @@ def fmt_value(v: Any, depth: int = 0) -> str:
         return ""
     if isinstance(v, (list, tuple)):
         return " ".join(fmt_value(x, depth + 1) for x in v)
+    if isinstance(v, Expr):
+        return expr_source(v)
     if isinstance(v, ASTNode) or is_dataclass(v):
         return _fmt_expr_node(v, depth + 1)
     return str(v)
@@ -223,10 +240,31 @@ class FlowBuilder:
             return {"id": self.new_id("assert"), "kind": "stmt", "type": "assert",
                     "name": "ASSERT", "label": "ASSERT", "args": a,
                     "line": line, "category": "Assert"}
-        if isinstance(s, IfBlock) and not hasattr(s, "elifs") and not hasattr(s, "else_body"):
-            cond = f"{s.var_name} {s.op} {fmt_value(s.cmp_value)}"
+        if isinstance(s, IfBlock):
+            cond = (getattr(s, "cond_text", "")
+                    or f"{s.var_name} {s.op} {fmt_value(s.cmp_value)}")
+            branches = [("then", line, s.body)]
+            for e in getattr(s, "elifs", None) or []:
+                branches.append((f"elif {fmt_value(e.cond)}", getattr(e, "line", None), e.body))
+            branches.append(("else", None, getattr(s, "else_body", None) or []))
             return self._block(s, "if", "IF", cond, "Control", line, end_line,
-                               [("then", line, s.body), ("else", None, [])], "ENDIF")
+                               branches, "ENDIF")
+        if isinstance(s, WhileBlock):
+            cond = getattr(s, "cond_text", "") or fmt_value(s.cond)
+            return self._block(s, "while", "WHILE", cond, "Control", line, end_line,
+                               [("body", line, s.body)], "END", loop=True)
+        if isinstance(s, ForBlock):
+            rng = f"{s.var_name} = {fmt_value(s.start)} TO {fmt_value(s.stop)}"
+            if s.step is not None:
+                rng += f" STEP {fmt_value(s.step)}"
+            return self._block(s, "for", "FOR", rng, "Control", line, end_line,
+                               [("body", line, s.body)], "END", loop=True)
+        if isinstance(s, AllocStmt):
+            dims = "×".join(fmt_value(x) for x in (s.width, s.height, s.channels))
+            return {"id": self.new_id("alloc"), "kind": "stmt", "type": "alloc",
+                    "name": "ALLOC", "label": "ALLOC",
+                    "args": f"{s.name}: {dims} {s.dtype}", "line": line,
+                    "category": "Memory"}
         if isinstance(s, RepeatBlock):
             return self._block(s, "repeat", "REPEAT", fmt_value(s.count), "Control",
                                line, end_line, [("body", line, s.body)], "END", loop=True)
@@ -557,7 +595,7 @@ class _ResultStore:
     """Keeps the arrays of the last few runs; PNGs are encoded lazily."""
 
     def __init__(self, max_runs: int = RESULT_CACHE_RUNS) -> None:
-        self._runs: "OrderedDict[str, dict]" = OrderedDict()
+        self._runs: OrderedDict[str, dict] = OrderedDict()
         self._lock = threading.Lock()
         self._max = max_runs
 
@@ -593,21 +631,6 @@ class RunCancelled(RuntimeError):
     pass
 
 
-class _TrackedBody(list):
-    """List proxy handed to Executor._run_body: records visited lines and
-    honours cancellation without depending on executor internals."""
-
-    def __init__(self, stmts: list, ex: "_CapturingExecutor") -> None:
-        super().__init__(stmts)
-        self._ex = ex
-
-    def __iter__(self):
-        for stmt in list.__iter__(self):
-            self._ex._check_cancel()
-            self._ex._visit(stmt)
-            yield stmt
-
-
 class _CapturingExecutor(Executor):
     """Executor that retains the final / partial / first-LOAD images, per-line
     timing, visited lines, and supports cooperative cancellation."""
@@ -628,62 +651,51 @@ class _CapturingExecutor(Executor):
         self.visited: set[int] = set()
         self.current_line: int | None = None
         self._include_depth = 0
-        self._body_depth = 0
 
     # hooks ---------------------------------------------------------------
     def _check_cancel(self) -> None:
         if self.cancel.is_set():
             raise RunCancelled("Run cancelled (time limit reached)")
 
-    def _visit(self, stmt: Any) -> None:
+    def _on_statement(self, stmt: Any) -> None:
+        self._check_cancel()
         if self._include_depth == 0:
             line = getattr(stmt, "line", None)
             if isinstance(line, int) and line > 0:
                 self.visited.add(line)
                 self.current_line = line
 
-    def run(self, pipeline: Pipeline) -> None:
+    def run(self, pipeline: Pipeline) -> Any:
         result = super().run(pipeline)
-        if result is not None and self.final_image is None:
-            self.final_image = result
-
-    def _run_body(self, stmts, image):  # type: ignore[override]
-        self._body_depth += 1
-        try:
-            result = super()._run_body(_TrackedBody(list(stmts), self), image)
-        finally:
-            self._body_depth -= 1
-        if self._body_depth == 0:
+        if result is not None:
             self.final_image = result
         return result
 
-    def _exec_command(self, cmd: Command, image: Any) -> Any:
+    def _before_command(self, cmd: Command) -> Command:
         self._check_cancel()
-        cmd = self._rewrite_paths(cmd)
-        t0 = time.perf_counter()
-        result = super()._exec_command(cmd, image)
-        ms = (time.perf_counter() - t0) * 1000
+        return self._rewrite_paths(cmd)
+
+    def _after_command(self, cmd: Command, elapsed_ms: float) -> None:
         if self._include_depth == 0 and cmd.line:
             rec = self.line_times.setdefault(cmd.line, {"ms": 0.0, "count": 0, "name": cmd.name})
-            rec["ms"] += ms
+            rec["ms"] += elapsed_ms
             rec["count"] += 1
-        self.last_image = result
-        if self.before_image is None and cmd.name == "LOAD" and result is not None:
-            self.before_image = result
-        return result
+        self.last_image = self.image
+        if self.before_image is None and cmd.name == "LOAD" and self.image is not None:
+            self.before_image = self.image
 
-    def _exec_include(self, stmt: IncludeStmt, image: Any) -> Any:
-        base = self.pipeline_path.parent if self.pipeline_path else (self.base_dir or Path("."))
-        target = (base / stmt.path).resolve()
+    def _check_include_path(self, inc_path: Path, stmt: IncludeStmt) -> None:
         roots = self.include_roots or []
-        if roots and not any(_is_within(target, r) for r in roots):
+        if roots and not any(_is_within(inc_path, r) for r in roots):
             raise RuntimeError(
                 f"[INCLUDE] '{stmt.path}' is outside the editor workspace (line {stmt.line})")
-        if target.suffix.lower() != ".pxl":
+        if inc_path.suffix.lower() != ".pxl":
             raise RuntimeError(f"[INCLUDE] Only .pxl files can be included (line {stmt.line})")
+
+    def _do_include(self, stmt: IncludeStmt) -> None:
         self._include_depth += 1
         try:
-            return super()._exec_include(stmt, image)
+            return super()._do_include(stmt)
         except SyntaxError as exc:
             raise RuntimeError(
                 f"[INCLUDE] Syntax error in '{stmt.path}' (line {stmt.line})") from exc

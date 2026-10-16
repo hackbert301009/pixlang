@@ -3,6 +3,39 @@
 All notable changes to PixLang are documented here.
 Format: [Semantic Versioning](https://semver.org)
 
+## [0.5.0] — Hardware-near language, linker & new editor
+
+### Language
+- Expressions (`+ - * / // % & | ^ ~ << >>`, comparisons, `and`/`or`/`not`) in `SET`, `IF`, `WHILE`, `FOR`, `ASSERT`, `RETURN`; parenthesised expressions in command arguments
+- `IF/ELIF/ELSE`, `WHILE`, `FOR … TO … STEP`, `REPEAT n AS i`, `BREAK`, `CONTINUE`
+- `FUNC`/`RETURN`/`GLOBAL` — command-style (ALL_CAPS) and expression functions, call-stack traces
+- **Linker:** `IMPORT`/`FROM … IMPORT`/`EXPORT`, `pixlang link [--map]`; reports cycles, duplicate exports, undefined symbols, unused imports
+- **Typed buffers & pointers:** `ALLOC`, `BUF`, `USE`, `FREE`, pixel PEEK/POKE, `&`/`*` live views, `WITH`, `AS`/`CAST`/`SIZEOF`, hardware-style integer wraparound, use-after-free detection
+- Compiler-style diagnostics with `file:line:col` and a caret; `PixSyntaxError`, `PixRuntimeError`, `PixAssertionError`, `PixLinkError`
+- Newlines now terminate statements (use `\` to continue a command)
+
+### Commands
+- 36 new commands: `CONVERT_DEPTH`, `BITWISE_*`, `SHIFT_*`, `BIT_PLANE`, `MASK`, `GAMMA`, `POSTERIZE`, `LUT`, `DITHER`, `EXTRACT_CHANNEL`, `MERGE_CHANNELS`, `SWAP_RB`, `DROP_ALPHA`, `ADD_ALPHA`, `SAVE_RAW`, `LOAD_RAW`, `EXPORT_C_ARRAY`, `BYTESWAP`, `STATS`, `CVT_COLOR`, `IN_RANGE`, `CLAHE`, `FILTER2D`, `SOBEL`, `LAPLACIAN`, `MORPH`, `PAD`, `ROTATE90`, `WARP_PERSPECTIVE`, `CONNECTED_COMPONENTS`, `ABSDIFF`, …
+- `THRESHOLD` modes, `ROTATE … expand`; arguments are type-coerced and validated with usage hints and typo suggestions
+- uint16/float32/BGRA images supported; metadata (contours, …) survives every built-in
+- `pixlang batch`, `--var k=v`, `pixlang commands --category`
+
+### Editor
+- Complete redesign: dark/light theme, resizable panes, command palette, autocomplete, hover docs, lint gutter, Problems/Output/Timing panels, compare slider, nested flow diagram
+- Hardened server: token + Origin/Host checks, strict JSON, workspace confinement, run timeout, CSP
+
+### Changed
+- **Local (`*.plugins.py`) and directory plugins are opt-in:** `--trust-plugins` or `[plugins] trust_local = true`
+- Errors go to stderr; colour/banner respect `NO_COLOR` and non-TTY output
+- `LOAD`/`SAVE` etc. unchanged; `INCLUDE` resolves relative to the including file
+
+### Fixed
+- Parser hang on stray `END`/`ENDIF`/`ROI_RESET`; `INCLUDE` cycles and nested relative paths; CRLF sources; negative/hex/exponent numbers; string escapes; `$ITER` clobbering in nested loops
+- Batch mode processed only the first file N times; batch dry run executed the pipeline
+- `HISTOGRAM_SAVE` on OpenCV 5; watch mode re-running forever after an error
+- Many linter false positives (ROI/INCLUDE bodies, PX001/PX005); ignored `lint.ignore` config
+- Editor CSRF/DNS-rebinding exposure and `INCLUDE` file disclosure
+
 ---
 
 ## [0.4.0] — Pipeline Composition & Validation

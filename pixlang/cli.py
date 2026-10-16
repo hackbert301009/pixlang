@@ -70,6 +70,10 @@ def main(argv=None):
     wp.add_argument("--interval", type=float, default=0.5, metavar="SEC")
     wp.add_argument("--no-lint", action="store_true")
 
+    kp = sub.add_parser("link", help="Link a pipeline and report symbols/diagnostics")
+    kp.add_argument("file")
+    kp.add_argument("--map", action="store_true", help="print the symbol map")
+
     vp = sub.add_parser("validate", help="Parse-check without executing")
     vp.add_argument("file")
 
@@ -89,6 +93,12 @@ def main(argv=None):
                     help="Port to listen on (default: 7478)")
     ep.add_argument("--no-browser", action="store_true",
                     help="Do not open browser automatically")
+    ep.add_argument("--workspace", metavar="DIR", default=None,
+                    help="Directory the editor may read/write (default: current directory)")
+    ep.add_argument("--timeout", type=float, default=30.0, metavar="SECONDS",
+                    help="Time limit for a single pipeline run (default: 30)")
+    ep.add_argument("--no-plugins", action="store_true",
+                    help="Do not load plugins inside the editor")
 
     args = ap.parse_args(argv)
     if args.command is None:
@@ -105,10 +115,12 @@ def main(argv=None):
         "lint":     lambda: _cmd_lint(args.file),
         "watch":    lambda: _cmd_watch(args),
         "validate": lambda: _cmd_validate(args.file),
+        "link":     lambda: _cmd_link(args.file, args.map),
         "commands": lambda: _cmd_list_commands(args.source, args.category),
         "plugins":  lambda: _cmd_plugins(args.trust_plugins),
         "new":      lambda: _cmd_new(args.name),
-        "editor":   lambda: _cmd_editor(args.port, args.no_browser),
+        "editor":   lambda: _cmd_editor(args.port, args.no_browser, args.workspace,
+                                       args.timeout, args.no_plugins),
     }
     handler = handlers.get(args.command)
     if handler is None:   # a subcommand registered elsewhere
@@ -223,7 +235,7 @@ def _cmd_lint(filepath):
     path     = _require_file(filepath)
     pipeline = _parse_or_die(path)
     linter   = Linter(registry)
-    diags    = linter.lint(pipeline)
+    diags    = linter.lint(pipeline, path=path)
 
     if not diags:
         print(f"  {path.name}  ({linter.rule_count} rules checked)\n")
@@ -302,6 +314,37 @@ def _dump_stmts(stmts, indent=4):
             for value in vars(s).values():
                 if isinstance(value, list) and any(isinstance(v, ASTNode) for v in value):
                     _dump_stmts([v for v in value if isinstance(v, ASTNode)], indent + 4)
+
+
+# ── link ──────────────────────────────────────────────────────────────────────
+
+def _cmd_link(filepath, show_map=False):
+    from pixlang import registry
+    from pixlang.config import load_config
+    from pixlang.linker import Linker
+
+    path = _require_file(filepath)
+    cfg  = load_config(path.resolve())
+    try:
+        prog = Linker(registry, cfg.link_search_paths).link(path, raise_on_error=False)
+    except SyntaxError as e:
+        _error(e.pretty() if hasattr(e, "pretty") else str(e))
+    except RuntimeError as e:
+        _error(str(e))
+
+    if show_map:
+        print(prog.symbol_map()); print()
+    S = Style()
+    for d in prog.diagnostics:
+        colour = S.red if d.severity == "error" else S.yellow
+        print(f"{colour}{d}{S.reset}")
+    if prog.diagnostics:
+        print()
+    print(f"  {len(prog.units)} unit(s), {len(prog.functions)} function(s), "
+          f"{len(prog.errors)} error(s), {len(prog.warnings)} warning(s)")
+    if prog.errors:
+        sys.exit(1)
+    _success("Link OK.")
 
 
 # ── commands ──────────────────────────────────────────────────────────────────
@@ -489,7 +532,8 @@ Edit `pipeline.plugins.py`. It is loaded because `pixlang.toml` sets
 
 # ── editor ────────────────────────────────────────────────────────────────────
 
-def _cmd_editor(port: int = 7478, no_browser: bool = False):
+def _cmd_editor(port: int = 7478, no_browser: bool = False, workspace=None,
+                timeout: float = 30.0, no_plugins: bool = False):
     try:
         from flask import Flask  # noqa: F401
     except ImportError:
@@ -499,10 +543,16 @@ def _cmd_editor(port: int = 7478, no_browser: bool = False):
             "  Or directly:   pip install flask>=3.0"
         )
 
-    from pixlang.editor.server import EXAMPLES_DIR, STATIC_DIR, app
+    from pixlang.editor.server import EXAMPLES_DIR, STATIC_DIR, create_app
+
+    ws = Path(workspace).resolve() if workspace else Path.cwd()
+    if not ws.is_dir():
+        _error(f"Workspace is not a directory: {ws}")
+    app = create_app(workspace=ws, run_timeout=timeout, plugins=not no_plugins)
 
     S = Style()
     print(f"  Editor    : {S.cyan}http://localhost:{port}/{S.reset}")
+    print(f"  Workspace : {S.dim}{ws}{S.reset}")
     print(f"  Examples  : {S.dim}{EXAMPLES_DIR}{S.reset}")
     print(f"  Static    : {S.dim}{STATIC_DIR}{S.reset}")
     print(f"  Press {S.bold}Ctrl+C{S.reset} to stop\n")
@@ -555,14 +605,14 @@ def _parse_or_die(path: Path):
     except OSError as e:
         _error(f"Cannot read {path}: {e}")
     try:
-        return parse(source)
+        return parse(source, filename=str(path))
     except (SyntaxError, RecursionError) as e:
         if isinstance(e, SyntaxError) and not getattr(e, "filename", None):
             try:
                 e.filename = str(path)
             except Exception:
                 pass
-        _error(format_syntax_error(e, path))
+        _error(e.pretty() if hasattr(e, "pretty") else format_syntax_error(e, path))
 
 
 def _fail(exc: BaseException, verbose: bool = False):
