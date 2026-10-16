@@ -112,7 +112,7 @@ export function fmtKeys(spec) {
 
 /** Six-hue category rail colours. */
 const CAT_INDEX = {
-  IO: 1, Geometry: 2, Color: 3, Threshold: 4, Filter: 4, Morphology: 5,
+  IO: 1, "I/O": 1, Depth: 3, Bitwise: 5, LUT: 3, Channels: 2, Raw: 1, Plugin: 6, Geometry: 2, Color: 3, Threshold: 4, Filter: 4, Morphology: 5,
   Analysis: 6, Composition: 2, Annotation: 3, Variable: 4, Control: 6,
   Include: 1, Assert: 5, ROI: 2, Function: 4, Statement: 6,
 };

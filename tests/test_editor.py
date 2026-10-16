@@ -301,11 +301,12 @@ class TestCommandsEndpoint:
 
     def test_load_in_io_category(self, client):
         cmds = {c["name"]: c for c in client.get("/api/commands").get_json()["commands"]}
-        assert cmds["LOAD"]["category"] == "IO"
+        assert cmds["LOAD"]["category"] in ("IO", "I/O")
 
     def test_all_categories_valid(self, client):
-        valid = {"IO", "Geometry", "Color", "Threshold", "Filter",
-                 "Morphology", "Analysis", "Composition", "Annotation", "Other"}
+        valid = {"IO", "I/O", "Geometry", "Color", "Threshold", "Filter",
+                 "Morphology", "Analysis", "Composition", "Annotation", "Depth",
+                 "Bitwise", "LUT", "Channels", "Raw", "Plugin", "Other"}
         for cmd in client.get("/api/commands").get_json()["commands"]:
             assert cmd["category"] in valid, f"{cmd['name']} has invalid category"
 

@@ -753,6 +753,11 @@ def _param_list(info: Any) -> list[dict]:
                             "default": None if p.get("default") is None else fmt_default(p.get("default")),
                             "optional": bool(p.get("optional", p.get("default") is not None)),
                             "doc": str(p.get("doc", "") or "")})
+            elif isinstance(p, (tuple, list)) and len(p) >= 2:
+                pname, ptype, pdef = (list(p) + [None])[:3]
+                out.append({"name": str(pname), "type": str(ptype or ""),
+                            "default": None if pdef is None else fmt_default(pdef),
+                            "optional": pdef is not None, "doc": ""})
             else:
                 name = getattr(p, "name", str(p))
                 default = getattr(p, "default", None)
@@ -795,7 +800,7 @@ def _command_meta(info: Any) -> dict:
     lines = [ln.strip() for ln in full_doc.splitlines() if ln.strip()]
     first = lines[0] if lines else ""
     usage = getattr(info, "usage", None)
-    summary = first
+    summary = getattr(info, "summary", "") or first
     if " — " in first:
         head, _, tail = first.partition(" — ")
         summary = tail.strip()
