@@ -37,6 +37,10 @@ def main():
     wp.add_argument("--interval", type=float, default=0.5, metavar="SEC")
     wp.add_argument("--no-lint", action="store_true")
 
+    kp = sub.add_parser("link", help="Link a pipeline and report symbols/diagnostics")
+    kp.add_argument("file")
+    kp.add_argument("--map", action="store_true", help="print the symbol map")
+
     vp = sub.add_parser("validate", help="Parse-check without executing")
     vp.add_argument("file")
 
@@ -65,6 +69,7 @@ def main():
         "lint":     lambda: _cmd_lint(args.file),
         "watch":    lambda: _cmd_watch(args.file, args.verbose, args.interval, args.no_lint),
         "validate": lambda: _cmd_validate(args.file),
+        "link":     lambda: _cmd_link(args.file, args.map),
         "commands": lambda: _cmd_list_commands(getattr(args,"source",None)),
         "plugins":  _cmd_plugins,
         "new":      lambda: _cmd_new(args.name),
@@ -90,7 +95,7 @@ def _cmd_run(filepath, verbose, no_plugins, batch=False):
         print(f"  Config    : {cfg.source_path.name}")
     print(f"  Verbose   : {verbose}  |  Plugins: {'off' if no_plugins else 'on'}")
 
-    pipeline = _parse_or_die(path.read_text())
+    pipeline = _parse_or_die(path.read_text(), str(path))
     loader   = None if no_plugins else PluginLoader(registry)
 
     flat_cmds = _flatten_commands(pipeline.commands)
@@ -131,9 +136,9 @@ def _cmd_lint(filepath):
     from pixlang.linter import Linter
 
     path     = _require_file(filepath)
-    pipeline = _parse_or_die(path.read_text())
+    pipeline = _parse_or_die(path.read_text(), str(path))
     linter   = Linter(registry)
-    diags    = linter.lint(pipeline)
+    diags    = linter.lint(pipeline, path=path)
 
     if not diags:
         print(f"  {path.name}  ({linter.rule_count} rules checked)\n")
@@ -172,7 +177,7 @@ def _cmd_watch(filepath, verbose, interval, no_lint):
 
 def _cmd_validate(filepath):
     path     = _require_file(filepath)
-    pipeline = _parse_or_die(path.read_text())
+    pipeline = _parse_or_die(path.read_text(), str(path))
     print(f"  Statements parsed: {len(pipeline.commands)}\n")
     _dump_stmts(pipeline.commands, indent=4)
     print(); _success("Syntax OK.")
@@ -194,6 +199,36 @@ def _dump_stmts(stmts, indent=4):
             print(f"{pad}line {s.line:>3}  {YEL}REPEAT{RESET}  {s.count!r}")
             _dump_stmts(s.body, indent + 4)
             print(f"{pad}        {YEL}END{RESET}")
+
+
+# ── link ──────────────────────────────────────────────────────────────────────
+
+def _cmd_link(filepath, show_map=False):
+    from pixlang import registry
+    from pixlang.linker import Linker
+    from pixlang.config import load_config
+
+    path = _require_file(filepath)
+    cfg  = load_config(path.resolve())
+    try:
+        prog = Linker(registry, cfg.link_search_paths).link(path, raise_on_error=False)
+    except SyntaxError as e:
+        _error(e.pretty() if hasattr(e, "pretty") else str(e))
+    except RuntimeError as e:
+        _error(str(e))
+
+    if show_map:
+        print(prog.symbol_map()); print()
+    for d in prog.diagnostics:
+        colour = RED if d.severity == "error" else YEL
+        print(f"{colour}{d}{RESET}")
+    if prog.diagnostics:
+        print()
+    print(f"  {len(prog.units)} unit(s), {len(prog.functions)} function(s), "
+          f"{len(prog.errors)} error(s), {len(prog.warnings)} warning(s)")
+    if prog.errors:
+        sys.exit(1)
+    _success("Link OK.")
 
 
 # ── commands ──────────────────────────────────────────────────────────────────
@@ -386,12 +421,12 @@ def _require_file(filepath):
     return p
 
 
-def _parse_or_die(source):
+def _parse_or_die(source, filename=None):
     from pixlang import parse
     try:
-        return parse(source)
+        return parse(source, filename=filename) if filename else parse(source)
     except SyntaxError as e:
-        _error(str(e))
+        _error(e.pretty() if hasattr(e, "pretty") else str(e))
 
 
 def _error(msg):
