@@ -415,7 +415,7 @@ class Executor:
             ok = self._truth(self._eval(c), c)
             if self.verbose:
                 tick = "✓" if ok else "✗"
-                print(f"  {tick}  IF {expr_source(c)}  → "
+                print(f"  {tick}  IF {_cond_text(c)}  → "
                       f"{'True — executing body' if ok else 'False'}")
             if ok:
                 self._exec_block(body)
@@ -677,7 +677,7 @@ class Executor:
             actual = self._eval(cond.left)
             expected = self._eval(cond.right)
             passed = self._truth(memory.compare(cond.op, actual, expected), cond)
-            desc = f"{expr_source(cond.left)} {cond.op} {_short(expected)}"
+            desc = f"{_cond_text(cond.left)} {cond.op} {_short(expected)}"
         else:
             passed = self._truth(self._eval(cond), cond)
             desc = stmt.cond_text or expr_source(cond)
@@ -1123,6 +1123,13 @@ class Executor:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _cond_text(node: Any) -> str:
+    text = expr_source(node)
+    if isinstance(node, Binary) and text.startswith("(") and text.endswith(")"):
+        text = text[1:-1]
+    return text
+
 
 def _short(v: Any) -> str:
     """Compact display of a value (buffers shown by shape/dtype)."""

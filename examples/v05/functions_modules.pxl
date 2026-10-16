@@ -1,0 +1,41 @@
+# PixLang v0.5 — Functions, modules and the linker
+#
+# Run:   pixlang run  examples/v05/functions_modules.pxl --verbose
+# Link:  pixlang link examples/v05/functions_modules.pxl --map
+
+FROM "lib/filters.pxl" IMPORT SHARPEN_TWICE, clamp, odd
+IMPORT "lib/filters.pxl" AS f
+
+GLOBAL calls
+
+# A local recursive expression function
+FUNC fib(n)
+    IF $n < 2
+        RETURN $n
+    ENDIF
+    RETURN fib($n - 1) + fib($n - 2)
+ENDFUNC
+
+# A local command function: counts its calls in a global
+FUNC STAMP(i)
+    GLOBAL calls
+    SET calls $calls + 1
+    DRAW_TEXT ("pass " + $i) 12 (40 + 30 * $i) 0.7 200 200 200 1 "simplex"
+ENDFUNC
+
+SET calls 0
+SET k clamp(odd(fib(6)), 3, 11)     # fib(6)=8 -> odd -> 9 -> clamp -> 9
+ASSERT $k == 9 "k should be 9"
+
+LOAD "examples/sample.jpg"
+RESIZE 640 480
+
+SHARPEN_TWICE ($k // 3)
+REPEAT 3 AS i
+    STAMP $i
+END
+f.LABEL "functions + modules"
+
+ASSERT $calls == 3
+ASSERT width == 640
+SAVE "examples/v05/out/functions_modules.png"

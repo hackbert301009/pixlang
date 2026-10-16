@@ -135,7 +135,7 @@ class LinkedProgram:
             out.append(f"{_short(key)}{tag}  sha256={unit.sha256[:12]}")
             for name, fn in unit.funcs.items():
                 kind = "command" if fn.is_command else "function"
-                exp = "export " if fn.exported or unit.exports.get(name) is fn else ""
+                exp = "export " if fn.exported else ""
                 params = ", ".join(fn.params)
                 out.append(f"    {exp}{kind:<8} {name}({params})  line {fn.line}")
             for imp in unit.imports:
