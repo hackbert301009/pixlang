@@ -824,6 +824,21 @@ class TestTimeouts:
         finally:
             app.config["PIXLANG_DEBUG"].stop_all()
 
+    def test_editing_breakpoints_and_watch_counts_as_activity(self, ws):
+        app = _make_app(ws, debug_idle_timeout=0.6)
+        try:
+            with app.test_client() as c:
+                c.environ_base["HTTP_X_PIXLANG_TOKEN"] = TOKEN
+                snap = start(c, FLAT_CODE)
+                for i in range(4):
+                    time.sleep(0.3)
+                    path = "breakpoints" if i % 2 else "watch"
+                    body = {"lines": [3]} if i % 2 else {"exprs": ["$a"]}
+                    r = c.post(f"/api/debug/{snap['session_id']}/{path}", json=body)
+                    assert r.get_json()["state"] == "paused"
+        finally:
+            app.config["PIXLANG_DEBUG"].stop_all()
+
     def test_activity_restarts_the_idle_clock(self, ws):
         app = _make_app(ws, debug_idle_timeout=0.7)
         try:

@@ -85,8 +85,8 @@ DEBUG_IMAGE_MAX_SIDE = 1200         # pause-time images are downscaled to this
 MAX_BUFFERS = 24
 MAX_CHILDREN = 16
 MAX_STDOUT_CHARS = 256 * 1024
-IMAGE_CACHE_ENTRIES = 48
-KEPT_SESSIONS = 3
+IMAGE_CACHE_ENTRIES = 32
+KEPT_SESSIONS = 2
 EVAL_TIMEOUT_S = 2.0
 STATES_FINAL = ("finished", "error", "stopped")
 ACTIONS = ("continue", "step_over", "step_into", "step_out", "pause", "stop")
@@ -483,6 +483,7 @@ class DebugSession:
         self._run_acc = 0.0
         self._seg_start: float | None = None
         self._pauses = 0
+        self._touched = time.monotonic()      # last user activity (idle clock)
         self._prev_buffers: dict[str, tuple] = {}
         self._prev_image_sig: tuple | None = None
         self.watch_exprs = list(watch)
@@ -500,12 +501,14 @@ class DebugSession:
 
     def set_breakpoints(self, items: list[tuple[int, str | None]]) -> None:
         with self.cond:
+            self._touched = time.monotonic()
             self._set_bps(items)
             self.seq += 1
             self.cond.notify_all()
 
     def set_watch(self, exprs: list[str]) -> None:
         with self.cond:
+            self._touched = time.monotonic()
             self.watch_exprs = list(exprs)
             if self.state == "paused" and self.executor is not None:
                 self._watch_results = self._eval_watch(self.executor, guarded=True)
@@ -731,11 +734,11 @@ class DebugSession:
             self.state = "paused"
             self._snap = snap
             self._resume = None
+            self._touched = time.monotonic()
             self.seq += 1
             self.cond.notify_all()
-            deadline = time.monotonic() + idle
             while self._resume is None and not self.stop_reason:
-                remaining = deadline - time.monotonic()
+                remaining = self._touched + idle - time.monotonic()
                 if remaining <= 0:
                     self.stop_reason = "idle"
                     self.cancel.set()
@@ -962,6 +965,7 @@ class DebugSession:
             if self.state != "paused" or self.executor is None:
                 return {"expr": text, "ok": False,
                         "error": "Expressions can only be evaluated while paused"}
+            self._touched = time.monotonic()
             return self.evaluate(self.executor, text, guarded=True)
 
 
