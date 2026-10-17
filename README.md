@@ -370,6 +370,7 @@ pixlang editor --timeout 60 --no-plugins
 - **Running:** `Ctrl/Cmd+Enter` or *Auto* re-run. The preview supports zoom/pan, a before/after compare slider and a strip of every `CHECKPOINT`/buffer.
 - **Feedback:** Problems panel (lint + runtime errors with line/col, click to jump), Output and per-command Timing.
 - **Flow:** live flow diagram with nested `IF/ELIF/ELSE`, loops, `ROI`/`WITH` and `FUNC` blocks and per-step timing.
+- **Debugger:** click the gutter (or `F9`) to set breakpoints — right-click for a conditional one — then press *Debug* (`Ctrl/Cmd+Shift+D`). Step with `F10` over / `F11` into / `Shift+F11` out, continue with `F8`, pause with `F6`, stop with `Shift+F5`. A **Debug** side view shows the call stack, variables (typed, expandable), your **Watch** expressions (read-only PixLang expressions evaluated in the paused frame; they persist per file), buffers with thumbnails and the breakpoint list, while the preview, flow diagram, Output and Timing follow the current line. The editor is read-only during a session, run time is counted only while the program is actually running, and an abandoned paused session is stopped after 10 minutes.
 - **Files:** open/save `.pxl` files in the workspace (`Ctrl/Cmd+S`), bundled examples, `Ctrl/Cmd+K` command palette, dark and light theme.
 
 Relative `LOAD`/`SAVE`/`INCLUDE` paths resolve against the opened file's folder, like `pixlang run`.
@@ -382,9 +383,9 @@ to rebuild them see `pixlang/editor/static/vendor/BUILD.md`.
 ## Testing
 
 ```bash
-pytest                      # 799 tests
+pytest                      # 903 tests
 pytest --cov=pixlang        # with coverage
-pytest tests/test_editor.py # editor API only
+pytest tests/test_editor.py tests/test_editor_v5.py tests/test_editor_debug.py  # editor + debugger API
 pytest tests/test_v4.py     # v0.4 only
 ```
 
@@ -393,7 +394,8 @@ pytest tests/test_v4.py     # v0.4 only
 ## Roadmap
 
 - [x] v0.5 — expressions, `FUNC`, `WHILE`/`FOR`, typed buffers & pointers, linker, hardware-near commands, editor redesign
-- [ ] v0.6 — IR/bytecode stage with `pixlang dis` and an editor step-debugger
+- [x] v0.5.1 — editor step debugger: breakpoints, step over/into/out, watch expressions
+- [ ] v0.6 — IR/bytecode stage with `pixlang dis`
 - [ ] v0.6 — ONNX model inference (`INFER model.onnx`)
 - [ ] v0.7 — compile cache for linked modules, tiling for very large images
 - [ ] v1.0 — Language spec, stable API, PyPI release

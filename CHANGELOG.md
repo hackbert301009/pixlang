@@ -3,6 +3,15 @@
 All notable changes to PixLang are documented here.
 Format: [Semantic Versioning](https://semver.org)
 
+## [Unreleased] — 0.5.1
+
+### Added
+- **Editor step debugger.** Breakpoints (gutter click / `F9`, optional condition as a PixLang expression), Continue / Step Over / Step Into / Step Out / Pause / Stop (`F8`, `F10`, `F11`, `Shift+F11`, `F6`, `Shift+F5`; start with `Ctrl/Cmd+Shift+D`). A Debug side view shows the call stack, typed variables, user Watch expressions (read-only evaluation: assignments, commands and FUNC calls are rejected), buffers with change-aware thumbnails and breakpoints; the current line, preview image, flow diagram, Output and Timing follow each pause. Sessions run under the normal sandbox, count only running time towards the run timeout and are stopped after 10 idle minutes.
+- Editor API: `POST /api/debug/start`, `GET /api/debug/<id>/state?wait=<seq>&timeout=<s>` (long-poll), `POST /api/debug/<id>/{control,breakpoints,watch,evaluate}`, `POST /api/debug/stop`. The final state carries the same payload as `/api/run`.
+
+### Changed
+- `pixlang.editor.server.app` is now created on first access instead of at import time.
+
 ## [0.5.0] — Hardware-near language, linker & new editor
 
 ### Language
