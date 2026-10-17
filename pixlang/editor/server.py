@@ -882,6 +882,117 @@ SAVE "out/result.png"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Run result payload (shared by /api/run and the step debugger)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def empty_run_payload(run_id: str) -> dict:
+    """The /api/run response skeleton for a run that produced nothing."""
+    return {"run_id": run_id, "ok": False, "image_b64": None, "image": None,
+            "before": None, "checkpoints": [], "partial": False, "stdout": "",
+            "stats": {"commands_executed": 0, "total_ms": 0.0, "command_times": {},
+                      "line_times": {}},
+            "visited_lines": [], "error": None, "error_info": None}
+
+
+def build_run_payload(*, run_id: str, executor: _CapturingExecutor, code: str,
+                      exc: BaseException | None, timed_out: bool = False,
+                      timeout: float = DEFAULT_TIMEOUT_S, stdout: str = "",
+                      wall_ms: float = 0.0, results: _ResultStore, root: Path,
+                      pipeline_path: Path | None, loader: Any = None,
+                      info_override: dict | None = None) -> dict:
+    """Assemble the JSON body describing a finished (or failed) run.
+
+    Image arrays are registered in *results* under *run_id* so the
+    ``/api/result/<run_id>/<name>.png`` route can serve them lazily.
+    """
+    err = None
+    info = None
+    if info_override is not None:
+        info = info_override
+        err = info["message"]
+    elif timed_out:
+        info = {"kind": "timeout", "line": executor.current_line, "col": None,
+                "file": None, "type": "Timeout", "raw": "",
+                "message": f"Run exceeded the {timeout:g}s time limit and was stopped"}
+        err = info["message"]
+    elif exc is not None:
+        info = error_info(exc, code, "runtime", fallback_line=executor.current_line)
+        if info.get("file") and pipeline_path is not None and \
+                Path(info["file"]).name != pipeline_path.name:
+            info["line"] = executor.current_line
+        err = str(exc)
+
+    raw_stats = executor.context.get("stats", {})
+    stats = {
+        "commands_executed": int(raw_stats.get("commands_executed", 0)),
+        "total_ms": float(raw_stats.get("total_ms", 0.0) or wall_ms),
+        "wall_ms": wall_ms,
+        "command_times": {k: [float(v) for v in vs]
+                          for k, vs in raw_stats.get("command_times", {}).items()},
+        "line_times": {str(k): {"ms": float(v["ms"]), "count": int(v["count"]),
+                                "name": v["name"]}
+                       for k, v in sorted(executor.line_times.items())},
+    }
+
+    final = executor.final_image
+    if err is not None and executor.last_image is not None:
+        final = executor.last_image
+    arrays: dict[str, Any] = {}
+    final_arr = _as_array(final)
+    before_arr = _as_array(executor.before_image)
+    if final_arr is not None:
+        arrays["final"] = final_arr
+    if before_arr is not None:
+        arrays["before"] = before_arr
+    cps = []
+    try:
+        cp_items = list(executor.context.get("checkpoints", {}).items())
+    except Exception:
+        cp_items = []
+    for i, (name, val) in enumerate(cp_items[:24]):
+        arr = _as_array(val)
+        if arr is None:
+            continue
+        key = f"cp{i}"
+        arrays[key] = arr
+        cps.append({"name": str(name), "key": key, **_image_meta(arr),
+                    "url": f"/api/result/{run_id}/{key}.png",
+                    "thumb_url": f"/api/result/{run_id}/{key}.thumb.png"})
+    results.put(run_id, arrays)
+
+    def ref(key: str, arr: Any) -> dict | None:
+        if arr is None:
+            return None
+        return {**_image_meta(arr), "url": f"/api/result/{run_id}/{key}.png",
+                "thumb_url": f"/api/result/{run_id}/{key}.thumb.png"}
+
+    plugin_errors = []
+    if loader is not None:
+        for m in getattr(loader, "manifests", []):
+            e = getattr(m, "error", None)
+            if e and "already registered" not in str(e):
+                plugin_errors.append(f"{m.name}: {e}")
+
+    return {
+        "run_id": run_id,
+        "ok": err is None,
+        "image_b64": _image_to_b64(final_arr),
+        "image": ref("final", final_arr),
+        "before": ref("before", before_arr),
+        "checkpoints": cps,
+        "partial": err is not None and final_arr is not None,
+        "stdout": stdout,
+        "stats": stats,
+        "visited_lines": sorted(executor.visited),
+        "error": err,
+        "error_info": info,
+        "plugin_errors": plugin_errors,
+        "file": (pipeline_path.resolve().relative_to(root.resolve()).as_posix()
+                 if pipeline_path is not None and _is_within(pipeline_path, root) else None),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # App factory
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -890,7 +1001,8 @@ def create_app(workspace: str | os.PathLike | None = None, *,
                run_timeout: float = DEFAULT_TIMEOUT_S,
                plugins: bool = True,
                registry: CommandRegistry | None = None,
-               examples_dir: Path | None = None) -> Flask:
+               examples_dir: Path | None = None,
+               debug_idle_timeout: float | None = None) -> Flask:
     """Build an editor app.
 
     workspace    — root directory for file browsing / saving (default: CWD)
@@ -898,6 +1010,8 @@ def create_app(workspace: str | os.PathLike | None = None, *,
     run_timeout  — seconds before a pipeline run is reported as timed out
     plugins      — load local/entry-point plugins for runs (into a private
                    copy of the registry, never the global one)
+    debug_idle_timeout — seconds a paused debug session may sit untouched
+                   before it is stopped (default: 10 minutes)
     """
     root = Path(workspace or os.getcwd()).resolve()
     ex_dir = (examples_dir or EXAMPLES_DIR).resolve()
@@ -912,6 +1026,20 @@ def create_app(workspace: str | os.PathLike | None = None, *,
 
     results = _ResultStore()
     run_lock = threading.Lock()
+
+    from .debugger import (
+        DEFAULT_IDLE_TIMEOUT_S,
+        DebugError,
+        DebugManager,
+        normalize_breakpoints,
+        normalize_watch,
+    )
+    dbg = DebugManager(
+        registry=reg, root=root, run_lock=run_lock, results=results, plugins=plugins,
+        timeout_fn=lambda: app.config["PIXLANG_RUN_TIMEOUT"],
+        idle_timeout=DEFAULT_IDLE_TIMEOUT_S if debug_idle_timeout is None
+        else float(debug_idle_timeout))
+    app.config["PIXLANG_DEBUG"] = dbg
 
     # ── security ──────────────────────────────────────────────────────────────
 
@@ -997,6 +1125,16 @@ def create_app(workspace: str | os.PathLike | None = None, *,
 
     def _rel(p: Path) -> str:
         return p.resolve().relative_to(root).as_posix()
+
+    def _locate(data: dict) -> tuple[Path | None, Path]:
+        """Where does a request's pipeline "live"?  -> (pipeline_path, base_dir)"""
+        example = _example_path(data.get("example")) if data.get("example") else None
+        if example is not None:
+            return example, ex_dir.parent          # examples use repo-root paths
+        p = _ws_path(data.get("path") or data.get("filename"))
+        if p is not None:
+            return p, p.parent
+        return None, root
 
     # ── routes: shell ─────────────────────────────────────────────────────────
 
@@ -1086,23 +1224,8 @@ def create_app(workspace: str | os.PathLike | None = None, *,
         code = _code(data)
         run_id = uuid.uuid4().hex
 
-        # Where does this pipeline "live"?
-        pipeline_path: Path | None = None
-        base_dir = root
-        example = _example_path(data.get("example")) if data.get("example") else None
-        if example is not None:
-            pipeline_path = example
-            base_dir = ex_dir.parent          # examples use repo-root paths
-        else:
-            p = _ws_path(data.get("path") or data.get("filename"))
-            if p is not None:
-                pipeline_path, base_dir = p, p.parent
-
-        empty = {"run_id": run_id, "ok": False, "image_b64": None, "image": None,
-                 "before": None, "checkpoints": [], "partial": False, "stdout": "",
-                 "stats": {"commands_executed": 0, "total_ms": 0.0, "command_times": {},
-                           "line_times": {}},
-                 "visited_lines": [], "error": None, "error_info": None}
+        pipeline_path, base_dir = _locate(data)
+        empty = empty_run_payload(run_id)
 
         try:
             pipeline = pxl_parse(code)
@@ -1157,88 +1280,12 @@ def create_app(workspace: str | os.PathLike | None = None, *,
             worker.join(1.0)
         wall_ms = (time.perf_counter() - t0) * 1000
 
-        err = None
-        info = None
-        if timed_out:
-            info = {"kind": "timeout", "line": executor.current_line, "col": None,
-                    "file": None, "type": "Timeout", "raw": "",
-                    "message": f"Run exceeded the {timeout:g}s time limit and was stopped"}
-            err = info["message"]
-        elif "exc" in outcome:
-            exc = outcome["exc"]
-            info = error_info(exc, code, "runtime", fallback_line=executor.current_line)
-            if info.get("file") and pipeline_path is not None and \
-                    Path(info["file"]).name != pipeline_path.name:
-                info["line"] = executor.current_line
-            err = str(exc)
-
-        raw_stats = executor.context.get("stats", {})
-        stats = {
-            "commands_executed": int(raw_stats.get("commands_executed", 0)),
-            "total_ms": float(raw_stats.get("total_ms", 0.0) or wall_ms),
-            "wall_ms": wall_ms,
-            "command_times": {k: [float(v) for v in vs]
-                              for k, vs in raw_stats.get("command_times", {}).items()},
-            "line_times": {str(k): {"ms": float(v["ms"]), "count": int(v["count"]),
-                                    "name": v["name"]}
-                           for k, v in sorted(executor.line_times.items())},
-        }
-
-        final = executor.final_image
-        if err is not None and executor.last_image is not None:
-            final = executor.last_image
-        arrays: dict[str, Any] = {}
-        final_arr = _as_array(final)
-        before_arr = _as_array(executor.before_image)
-        if final_arr is not None:
-            arrays["final"] = final_arr
-        if before_arr is not None:
-            arrays["before"] = before_arr
-        cps = []
-        try:
-            cp_items = list(executor.context.get("checkpoints", {}).items())
-        except Exception:
-            cp_items = []
-        for i, (name, val) in enumerate(cp_items[:24]):
-            arr = _as_array(val)
-            if arr is None:
-                continue
-            key = f"cp{i}"
-            arrays[key] = arr
-            cps.append({"name": str(name), "key": key, **_image_meta(arr),
-                        "url": f"/api/result/{run_id}/{key}.png",
-                        "thumb_url": f"/api/result/{run_id}/{key}.thumb.png"})
-        results.put(run_id, arrays)
-
-        def ref(key: str, arr: Any) -> dict | None:
-            if arr is None:
-                return None
-            return {**_image_meta(arr), "url": f"/api/result/{run_id}/{key}.png",
-                    "thumb_url": f"/api/result/{run_id}/{key}.thumb.png"}
-
-        plugin_errors = []
-        if loader is not None:
-            for m in getattr(loader, "manifests", []):
-                e = getattr(m, "error", None)
-                if e and "already registered" not in str(e):
-                    plugin_errors.append(f"{m.name}: {e}")
-
-        return jsonify({
-            "run_id": run_id,
-            "ok": err is None,
-            "image_b64": _image_to_b64(final_arr),
-            "image": ref("final", final_arr),
-            "before": ref("before", before_arr),
-            "checkpoints": cps,
-            "partial": err is not None and final_arr is not None,
-            "stdout": stdout_buf.getvalue(),
-            "stats": stats,
-            "visited_lines": sorted(executor.visited),
-            "error": err,
-            "error_info": info,
-            "plugin_errors": plugin_errors,
-            "file": _rel(pipeline_path) if pipeline_path is not None and _is_within(pipeline_path, root) else None,
-        })
+        payload = build_run_payload(
+            run_id=run_id, executor=executor, code=code, exc=outcome.get("exc"),
+            timed_out=timed_out, timeout=timeout, stdout=stdout_buf.getvalue(),
+            wall_ms=wall_ms, results=results, root=root, pipeline_path=pipeline_path,
+            loader=loader)
+        return jsonify(payload)
 
     @app.route("/api/result/<run_id>/<name>")
     def api_result(run_id: str, name: str) -> Any:
@@ -1247,10 +1294,110 @@ def create_app(workspace: str | os.PathLike | None = None, *,
             abort(404)
         data = results.png(run_id, m.group(1), bool(m.group(2)))
         if data is None:
+            data = dbg.png(run_id, m.group(1), bool(m.group(2)))
+        if data is None:
             abort(404)
         resp = Response(data, mimetype="image/png")
         resp.headers["Cache-Control"] = "private, max-age=3600, immutable"
         return resp
+
+    # ── routes: step debugger ─────────────────────────────────────────────────
+
+    def _session(sid: str) -> Any:
+        s = dbg.get(sid) if re.fullmatch(r"[0-9a-f]{32}", sid) else None
+        if s is None:
+            abort(404)
+        return s
+
+    @app.route("/api/debug/start", methods=["POST"])
+    def api_debug_start() -> Any:
+        data = _body()
+        code = _code(data)
+        try:
+            bps = normalize_breakpoints(data.get("breakpoints", data.get("lines")))
+            watch = normalize_watch(data.get("watch"))
+        except DebugError as exc:
+            return _err(str(exc), 400)
+        entry = data.get("stop_on_entry")
+        if entry is not None and not isinstance(entry, bool):
+            return _err("stop_on_entry must be a boolean", 400)
+        pipeline_path, base_dir = _locate(data)
+        try:
+            pipeline = pxl_parse(code)
+        except SyntaxError as exc:
+            return jsonify(dbg.failed(code=code, exc=exc).view())
+        try:
+            sess = dbg.start(code=code, pipeline=pipeline, pipeline_path=pipeline_path,
+                             base_dir=base_dir, include_roots=[root, ex_dir],
+                             breakpoints=bps, watch=watch, stop_on_entry=entry)
+        except RuntimeError as exc:
+            return _err(str(exc), 409)
+        return jsonify(sess.wait_for_change(1, 1.0))
+
+    @app.route("/api/debug/stop", methods=["POST"])
+    def api_debug_stop() -> Any:
+        """Stop whatever session is active (used when a page reloads)."""
+        active = dbg.active()
+        if active is not None:
+            active.stop()
+        return jsonify({"ok": True, "session_id": active.id if active else None})
+
+    @app.route("/api/debug/<sid>/state")
+    def api_debug_state(sid: str) -> Any:
+        s = _session(sid)
+        try:
+            after = int(request.args.get("wait", ""))
+            timeout = min(30.0, max(0.0, float(request.args.get("timeout", "25"))))
+        except ValueError:
+            after, timeout = None, 0.0
+        if after is None:
+            return jsonify(s.view())
+        return jsonify(s.wait_for_change(after, timeout))
+
+    @app.route("/api/debug/<sid>/control", methods=["POST"])
+    def api_debug_control(sid: str) -> Any:
+        s = _session(sid)
+        data = _body()
+        try:
+            return jsonify(s.control(str(data.get("action", "")),
+                                     settle=min(5.0, max(0.0, float(data.get("settle", 1.0))))))
+        except DebugError as exc:
+            return _err(str(exc), 400)
+        except (TypeError, ValueError):
+            return _err("settle must be a number", 400)
+        except PermissionError as exc:
+            return _err(str(exc), 409)
+
+    @app.route("/api/debug/<sid>/breakpoints", methods=["POST"])
+    def api_debug_breakpoints(sid: str) -> Any:
+        s = _session(sid)
+        data = _body()
+        try:
+            items = normalize_breakpoints(data.get("breakpoints", data.get("lines")))
+        except DebugError as exc:
+            return _err(str(exc), 400)
+        s.set_breakpoints(items)
+        return jsonify(s.view())
+
+    @app.route("/api/debug/<sid>/watch", methods=["POST"])
+    def api_debug_watch(sid: str) -> Any:
+        s = _session(sid)
+        data = _body()
+        try:
+            exprs = normalize_watch(data.get("exprs", data.get("watch")))
+        except DebugError as exc:
+            return _err(str(exc), 400)
+        s.set_watch(exprs)
+        return jsonify(s.view())
+
+    @app.route("/api/debug/<sid>/evaluate", methods=["POST"])
+    def api_debug_evaluate(sid: str) -> Any:
+        """Evaluate one expression in the paused frame (read-only)."""
+        s = _session(sid)
+        expr = _body().get("expr")
+        if not isinstance(expr, str):
+            return _err("expr must be a string", 400)
+        return jsonify(s.evaluate_paused(expr))
 
     # ── routes: files ─────────────────────────────────────────────────────────
 
@@ -1372,5 +1519,12 @@ def _workspace_file() -> Path:
     return WORKSPACE_FILE
 
 
-# Default app (used by `pixlang editor`).  Workspace = CWD at import time.
-app = create_app()
+def __getattr__(name: str) -> Any:
+    """Default app (``server.app``), built on first access with the workspace set
+    to the CWD at that moment.  Lazy so that importing ``pixlang.editor.debugger``
+    (which builds on this module) cannot recurse into ``create_app``."""
+    if name == "app":
+        default = create_app()
+        globals()["app"] = default
+        return default
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
