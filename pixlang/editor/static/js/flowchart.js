@@ -335,3 +335,29 @@ export function setActiveLine(svgEl, line) {
   if (!line) return;
   for (const g of svgEl.querySelectorAll(`.fn[data-line="${line}"]`)) g.classList.add("active");
 }
+
+/**
+ * Debugger overlay: highlight the node being executed and tint the visited
+ * ones. Works on the rendered SVG without re-laying it out; pass null to clear.
+ */
+export function markDebug(svgEl, state) {
+  if (!svgEl) return;
+  for (const c of svgEl.querySelectorAll(".fn-cursor")) c.remove();
+  let currentNode = null;
+  for (const g of svgEl.querySelectorAll(".fn")) {
+    const line = Number(g.dataset.line);
+    const isCur = !!state && state.current === line;
+    g.classList.toggle("current", isCur);
+    g.classList.toggle("dvisited", !!state && !isCur && state.visited.has(line));
+    if (isCur) { g.setAttribute("aria-current", "step"); currentNode = currentNode || g; }
+    else g.removeAttribute("aria-current");
+  }
+  if (!currentNode) return;
+  const box = currentNode.querySelector(".fn-box");
+  if (box) {
+    const x = Number(box.getAttribute("x")), y = Number(box.getAttribute("y")), h = Number(box.getAttribute("height"));
+    const cy = y + h / 2;
+    currentNode.append(svg("path", { class: "fn-cursor", d: `M${x - 9} ${cy - 4} L${x - 3} ${cy} L${x - 9} ${cy + 4} Z` }));
+  }
+  currentNode.scrollIntoView({ block: "nearest", inline: "nearest" });
+}

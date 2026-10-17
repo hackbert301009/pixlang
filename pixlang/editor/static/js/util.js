@@ -22,6 +22,17 @@ export async function api(path, body) {
   return data;
 }
 
+/** Fire-and-forget POST that survives page unload (fetch keepalive). */
+export function apiKeepalive(path, body = {}) {
+  try {
+    fetch(path, {
+      method: "POST", keepalive: true,
+      headers: { "X-PixLang-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => {});
+  } catch { /* unloading */ }
+}
+
 /** localStorage wrapper that never throws. */
 export const store = {
   get(key, fallback = null) {

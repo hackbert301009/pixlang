@@ -17,6 +17,8 @@ import {
 import { renderFlowchart, setActiveLine } from "./flowchart.js";
 import { createPreview } from "./preview.js";
 import { createPalette } from "./palette.js";
+import { createDebugger } from "./debug.js";
+import { debugGutter, readOnlyExtension } from "./debug-editor.js";
 import {
   initLayout, showSide, showBottom, toggleBottom, toggleFlowPane, showRightTab, setView,
   rovingTabs, listKeys, closeSidebarIfOverlay,
@@ -47,6 +49,7 @@ const S = {
 let view = null;
 let preview = null;
 let palette = null;
+let dbg = null;
 
 // ── Editor ───────────────────────────────────────────────────────────────────
 function createEditor(doc) {
@@ -62,6 +65,8 @@ function createEditor(doc) {
       doc,
       extensions: [
         appKeys,
+        debugGutter({ toggle: (l) => dbg.toggleLine(l), condition: (l) => dbg.editCondition(l) }),
+        readOnlyExtension(() => toast("Stop debugging to edit the pipeline", "err")),
         lineNumbers(),
         highlightActiveLineGutter(),
         highlightSpecialChars(),
@@ -98,6 +103,7 @@ function createEditor(doc) {
 
 function onEditorUpdate(u) {
   if (u.docChanged) {
+    if (dbg) dbg.onDocChange();
     setDirty(view.state.doc.toString() !== S.savedCode);
     scheduleParse();
     persistDraft();
@@ -131,11 +137,14 @@ function setDirty(d) {
 }
 
 function setFile(file, code) {
+  dbg.persistNow();
+  dbg.reset();
   S.file = file;
   S.savedCode = file.kind === "untitled" ? "" : code;
   S.runtime = null;
   S.lastRun = null;
   setDoc(code);
+  dbg.restoreForFile();
   setDirty(file.kind === "untitled" ? code.trim().length > 0 && code !== S.template : false);
   const dir = file.kind === "example" ? "examples /" : (file.path && file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) + " /" : "");
   $("#crumb-dir").textContent = dir;
@@ -433,9 +442,8 @@ function appendOutput(nodes) {
   view.scrollTop = view.scrollHeight;
 }
 
-function renderTiming() {
+function renderTiming(r = S.lastRun) {
   const host = $("#bp-timing");
-  const r = S.lastRun;
   const lt = r && r.stats ? r.stats.line_times || {} : {};
   const rows = Object.entries(lt).map(([line, v]) => ({ line: +line, ...v })).sort((a, b) => a.line - b.line);
   if (!rows.length) {
@@ -494,7 +502,7 @@ function drawFlow() {
   if (!S.tree.length) { showFlowEmpty("Nothing to show yet — add some commands."); $("#flow-sub").textContent = ""; return; }
   $("#flow-empty").hidden = true;
   const r = S.lastRun;
-  const sameCode = r && r.codeAtRun === view.state.doc.toString();
+  const sameCode = r && r.codeAtRun === view.state.doc.toString() && !dbg.isActive();
   const run = sameCode ? {
     done: true,
     line_times: r.stats ? r.stats.line_times : {},
@@ -507,12 +515,68 @@ function drawFlow() {
   });
   $("#flow-sub").textContent = `${res.count} steps` + (run ? " · last run" : "");
   setActiveLine($("#flow-svg"), view.state.doc.lineAt(view.state.selection.main.head).number);
+  dbg.refreshFlow();
+}
+
+/** Lines that hold an executable statement (breakpoint candidates), from the flow tree. */
+function statementLines() {
+  const out = new Set();
+  const walk = (items) => {
+    for (const it of items || []) {
+      if (!it.func && it.line) out.add(it.line);
+      for (const br of it.branches || []) walk(br.items);
+    }
+  };
+  walk(S.tree);
+  return out;
 }
 
 // ── Run ──────────────────────────────────────────────────────────────────────
 const autoRun = debounce(() => runPipeline({ quiet: true, auto: true }), 700);
 
+/** Show a finished run (normal or debug): problems, preview, output, timing, flow, status bar. */
+function presentResult(r, code, { quiet = false, auto = false, started = new Date(), debug = false } = {}) {
+  r.codeAtRun = code;
+  S.lastRun = r;
+  const ei = r.error_info;
+  const kindLabel = ei ? ({ syntax: "syntax", runtime: "runtime", timeout: "timeout", assert: "assert", busy: "busy", network: "network" }[ei.kind] || ei.kind) : null;
+  S.runtime = ei ? {
+    severity: "error", line: ei.line || null, col: ei.col || null, message: ei.message,
+    code: ei.kind, kindLabel,
+  } : null;
+  view.dispatch({ effects: setRuntimeError.of(ei && ei.kind !== "syntax" ? ei.line : null) });
+  forceLinting(view);
+  renderProblems();
+
+  // Preview
+  preview.setResult(r);
+  if (!ei) preview.setStale(null);
+  else if (r.image) preview.setStale("error", ei.line ? `Failed at line ${ei.line} — showing partial result` : "Run failed — showing partial result");
+  else preview.setStale("error", ei.kind === "syntax" ? `Syntax error on line ${ei.line ?? "?"}` : "Run failed — no image produced");
+
+  // Output
+  const ts = started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const out = debug ? [] : [h("span", { class: "o-dim" }, `── ${ts}  ${S.file.name} ${"─".repeat(24)}\n`)];
+  if (r.stdout && !debug) out.push(r.stdout.endsWith("\n") ? r.stdout : r.stdout + "\n");
+  for (const pe of r.plugin_errors || []) out.push(h("span", { class: "o-err" }, `plugin: ${pe}\n`));
+  if (ei) out.push(h("span", { class: "o-err" }, `✗ ${ei.line ? `Line ${ei.line}${ei.col ? ":" + ei.col : ""} ` : ""}${ei.raw || ei.message}\n`));
+  else out.push(h("span", { class: "o-ok" }, `✓ Finished in ${fmtMs(r.stats.total_ms)} · ${r.stats.commands_executed} commands\n`));
+  appendOutput(out);
+  renderTiming();
+  drawFlow();
+
+  // Status bar
+  const sb = $("#sb-run");
+  if (ei) { sb.className = "sb-item sb-run err"; sb.replaceChildren(icon("x-circle", "icon-xs"), `Last run failed${ei.line ? " · line " + ei.line : ""}`); }
+  else { sb.className = "sb-item sb-run ok"; sb.replaceChildren(icon("check-circle", "icon-xs"), `Last run ${fmtMs(r.stats.total_ms)}`); }
+
+  if (ei && !quiet && !auto) {
+    if (window.innerWidth >= 640) showBottom("problems");
+  }
+}
+
 async function runPipeline({ quiet = false, auto = false } = {}) {
+  if (dbg.isActive()) { if (!quiet) toast("Stop debugging to run the pipeline", "err"); return; }
   if (S.running) { S.pending = true; return; }
   autoRun.cancel();
   S.running = true;
@@ -534,48 +598,11 @@ async function runPipeline({ quiet = false, auto = false } = {}) {
   } catch (e) {
     r = { ok: false, error: e.message, error_info: { kind: "network", message: e.message }, stats: {} };
   }
-  r.codeAtRun = code;
-  S.lastRun = r;
   S.running = false;
   btn.classList.remove("running");
   btn.removeAttribute("aria-busy");
   preview.setBusy(false);
-
-  const ei = r.error_info;
-  const kindLabel = ei ? ({ syntax: "syntax", runtime: "runtime", timeout: "timeout", assert: "assert", busy: "busy", network: "network" }[ei.kind] || ei.kind) : null;
-  S.runtime = ei ? {
-    severity: "error", line: ei.line || null, col: ei.col || null, message: ei.message,
-    code: ei.kind, kindLabel,
-  } : null;
-  view.dispatch({ effects: setRuntimeError.of(ei && ei.kind !== "syntax" ? ei.line : null) });
-  forceLinting(view);
-  renderProblems();
-
-  // Preview
-  preview.setResult(r);
-  if (!ei) preview.setStale(null);
-  else if (r.image) preview.setStale("error", ei.line ? `Failed at line ${ei.line} — showing partial result` : "Run failed — showing partial result");
-  else preview.setStale("error", ei.kind === "syntax" ? `Syntax error on line ${ei.line ?? "?"}` : "Run failed — no image produced");
-
-  // Output
-  const ts = started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const out = [h("span", { class: "o-dim" }, `── ${ts}  ${S.file.name} ${"─".repeat(24)}\n`)];
-  if (r.stdout) out.push(r.stdout.endsWith("\n") ? r.stdout : r.stdout + "\n");
-  for (const pe of r.plugin_errors || []) out.push(h("span", { class: "o-err" }, `plugin: ${pe}\n`));
-  if (ei) out.push(h("span", { class: "o-err" }, `✗ ${ei.line ? `Line ${ei.line}${ei.col ? ":" + ei.col : ""} ` : ""}${ei.raw || ei.message}\n`));
-  else out.push(h("span", { class: "o-ok" }, `✓ Finished in ${fmtMs(r.stats.total_ms)} · ${r.stats.commands_executed} commands\n`));
-  appendOutput(out);
-  renderTiming();
-  drawFlow();
-
-  // Status bar
-  const sb = $("#sb-run");
-  if (ei) { sb.className = "sb-item sb-run err"; sb.replaceChildren(icon("x-circle", "icon-xs"), `Last run failed${ei.line ? " · line " + ei.line : ""}`); }
-  else { sb.className = "sb-item sb-run ok"; sb.replaceChildren(icon("check-circle", "icon-xs"), `Last run ${fmtMs(r.stats.total_ms)}`); }
-
-  if (ei && !quiet && !auto) {
-    if (window.innerWidth >= 640) showBottom("problems");
-  }
+  presentResult(r, code, { quiet, auto, started });
   if (S.pending) { S.pending = false; runPipeline({ quiet: true, auto: true }); }
 }
 
@@ -676,8 +703,11 @@ function showShortcuts() {
     ["Run pipeline", "mod+enter"], ["Save", "mod+s"], ["Command palette", "mod+k"],
     ["Autocomplete", "ctrl+space"], ["Find / replace", "mod+f"], ["Toggle comment", "mod+/"],
     ["Zoom preview", "+ / − / 0 / 1"],
+    ["Start / restart debugging", "mod+shift+d"], ["Toggle breakpoint", "F9"],
+    ["Continue", "F8 / F5"], ["Step over / into / out", "F10 / F11 / ⇧F11"],
+    ["Pause / stop debugging", "F6 / ⇧F5"],
   ];
-  const fmt = (k) => k.includes("/") && !k.startsWith("mod") ? k : k.split("+").map(p => ({ mod: isMac ? "⌘" : "Ctrl", enter: "↵", ctrl: "Ctrl", space: "Space", shift: "⇧" }[p] || p.toUpperCase())).join(isMac ? "" : "+");
+  const fmt = (k) => (k.includes("/") && !k.startsWith("mod")) || k === "F9" ? k : k.split("+").map(p => ({ mod: isMac ? "⌘" : "Ctrl", enter: "↵", ctrl: "Ctrl", space: "Space", shift: "⇧" }[p] || p.toUpperCase())).join(isMac ? "" : "+");
   dialog({
     title: "Keyboard shortcuts",
     body: rows.map(([a, k]) => `${a}: ${fmt(k)}`).join("   ·   "),
@@ -716,6 +746,7 @@ function paletteItems() {
     { group: "Actions", title: "Go to line…", icon: "hash", run: gotoLine },
     { group: "Actions", title: "Keyboard shortcuts", icon: "command", run: showShortcuts },
   ];
+  items.push(...dbg.paletteItems());
   for (const f of S.files) items.push({ group: "Files", title: f.path, icon: "file-code", run: () => openWorkspaceFile(f.path), weight: 5 });
   for (const ex of S.examples) items.push({ group: "Examples", title: ex.name, sub: ex.description, icon: "book", run: () => openExample(ex.name), pinned: false });
   for (const c of S.lang.commands) items.push({ group: "Insert command", title: c.name, sub: c.summary || c.usage, rail: c.category, run: () => insertCommand(c), pinned: false });
@@ -779,6 +810,10 @@ function wire() {
   $("#flow-zoom-out").addEventListener("click", () => { S.flowScale = Math.max(0.5, S.flowScale / 1.15); store.set("flowScale", S.flowScale); drawFlow(); });
 
   document.addEventListener("keydown", (e) => {
+    if (e.defaultPrevented || e.isComposing || !$("#palette").hidden || !$("#dialog").hidden) return;
+    dbg.handleKey(e);
+  });
+  document.addEventListener("keydown", (e) => {
     const mod = isMac ? e.metaKey : e.ctrlKey;
     if (!mod || e.defaultPrevented) return;
     const k = e.key.toLowerCase();
@@ -840,7 +875,29 @@ async function boot() {
   }
   if (code === null) code = S.template;
 
+  dbg = createDebugger({
+    view: () => view,
+    isMac,
+    fileKey: () => (S.file.kind === "workspace" ? "ws:" + S.file.path : S.file.kind === "example" ? "ex:" + S.file.example : "untitled"),
+    fileName: () => S.file.name,
+    runBody: () => (S.file.kind === "workspace" ? { path: S.file.path } : S.file.kind === "example" ? { example: S.file.example } : {}),
+    preview,
+    flowSvg: () => $("#flow-svg"),
+    stmtLines: statementLines,
+    dialog,
+    jump: (line) => jumpTo(view, line),
+    appendOutput,
+    onTiming: (stats) => renderTiming({ stats }),
+    onFinal: (r, code, opts) => presentResult(r, code, opts),
+    onStopped: () => {
+      const sb = $("#sb-run");
+      sb.className = "sb-item sb-run";
+      sb.replaceChildren(icon("bug", "icon-xs"), "Debug session stopped");
+      preview.setStale(null);
+    },
+  });
   createEditor("");
+  dbg.init();
   wire();
   showSide(store.get("ui", {})?.side || "files", { toggle: false });
   if (window.innerWidth < 1024) { $("#app").dataset.sidebar = "closed"; showSide.call(null, "files", { toggle: false }); $("#app").dataset.sidebar = "closed"; }

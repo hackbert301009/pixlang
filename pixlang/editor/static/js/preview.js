@@ -277,6 +277,8 @@ export function createPreview() {
       vp.classList.toggle("stale", kind === "error");
     },
     hasImage: () => !!(st.result && st.result.image),
+    /** Show one entry of the Steps strip (used by the debugger's buffer list). */
+    showStep(key) { st.stepKey = key; setMode("steps"); },
     fit,
   };
 }
