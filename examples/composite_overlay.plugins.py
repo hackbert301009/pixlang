@@ -1,11 +1,13 @@
 # examples/composite_overlay.plugins.py
 #
-# LOCAL PLUGIN — auto-loaded when running composite_overlay.pxl
+# LOCAL PLUGIN — loaded when running composite_overlay.pxl with --trust-plugins
 #
-# This file is discovered automatically by PixLang because it sits
-# alongside composite_overlay.pxl and shares the same stem name.
+# This file is discovered by PixLang because it sits alongside
+# composite_overlay.pxl and shares the same stem name. Local plugins are
+# arbitrary Python, so they are opt-in (--trust-plugins, or
+# `[plugins] trust_local = true` in pixlang.toml).
 #
-# Run: pixlang run examples/composite_overlay.pxl --verbose
+# Run: pixlang run examples/composite_overlay.pxl --verbose --trust-plugins
 # You should see this plugin listed in the plugin section of verbose output.
 #
 # Adds: STAMP_VERSION — overlays a version watermark in the bottom-right corner.

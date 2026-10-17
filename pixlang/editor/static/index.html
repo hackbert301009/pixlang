@@ -1,110 +1,375 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PixLang Editor</title>
+  <meta name="pixlang-token" content="{{PIXLANG_TOKEN}}">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%237c5cff'/%3E%3Crect x='8' y='8' width='7' height='7' rx='1.5' fill='white'/%3E%3Crect x='17' y='8' width='7' height='7' rx='1.5' fill='white' opacity='.55'/%3E%3Crect x='8' y='17' width='7' height='7' rx='1.5' fill='white' opacity='.55'/%3E%3Crect x='17' y='17' width='7' height='7' rx='1.5' fill='white' opacity='.85'/%3E%3C/svg%3E">
+  <link rel="preload" href="/static/vendor/fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/vendor/fonts/jetbrains-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="modulepreload" href="/static/vendor/cm6.js">
   <link rel="stylesheet" href="/static/css/editor.css">
-  <script type="importmap">
-  {
-    "imports": {
-      "codemirror":                 "/static/vendor/cm6-all.js",
-      "@codemirror/view":           "/static/vendor/cm6-all.js",
-      "@codemirror/state":          "/static/vendor/cm6-all.js",
-      "@codemirror/language":       "/static/vendor/cm6-all.js",
-      "@codemirror/commands":       "/static/vendor/cm6-all.js",
-      "@codemirror/theme-one-dark": "/static/vendor/cm6-all.js"
-    }
-  }
-  </script>
+  <script src="/static/js/theme-init.js"></script>
 </head>
 <body>
 
-  <!-- ── TOOLBAR ─────────────────────────────────────────────────────── -->
-  <div id="toolbar">
-    <span id="logo">&#9632; PixLang</span>
-    <div id="toolbar-sep"></div>
-    <button id="btn-run"  title="Run pipeline (F5)">&#9654; Run</button>
-    <button id="btn-lint" title="Lint code (Ctrl+L)">&#10003; Lint</button>
-    <button id="btn-save" title="Save workspace (Ctrl+S)">&#128190; Save</button>
-    <button id="btn-load" title="Load workspace">&#128194; Load</button>
-    <button id="btn-new"  title="New pipeline">&#43; New</button>
-    <span id="toolbar-status"></span>
-  </div>
+<!-- ── Icon sprite (Lucide-style, 24 viewBox, stroke icons) ─────────────── -->
+<svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+  <symbol id="i-file-code" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m10 12.5-2 2 2 2"/><path d="m14 16.5 2-2-2-2"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24"><path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-blocks" viewBox="0 0 24 24"><rect width="7" height="7" x="14" y="3" rx="1"/><path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+  <symbol id="i-flow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M11 8v6M8 11h6"/></symbol>
+  <symbol id="i-zoom-out" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+  <symbol id="i-timer" viewBox="0 0 24 24"><path d="M10 2h4M12 14l3-3"/><circle cx="12" cy="14" r="8"/></symbol>
+  <symbol id="i-compare" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/><path d="m8 10-2 2 2 2M16 10l2 2-2 2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></symbol>
+  <symbol id="i-command" viewBox="0 0 24 24"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13"/></symbol>
+  <symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></symbol>
+  <symbol id="i-panel-bottom" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 15h18"/></symbol>
+  <symbol id="i-sidebar" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-corner" viewBox="0 0 24 24"><path d="m9 10-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></symbol>
+  <symbol id="i-variable" viewBox="0 0 24 24"><path d="M8 21s-4-3-4-9 4-9 4-9M16 3s4 3 4 9-4 9-4 9M15 9l-6 6M9 9l6 6"/></symbol>
+  <symbol id="i-keyword" viewBox="0 0 24 24"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></symbol>
+  <symbol id="i-function" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 17c2 0 2.8-1 2.8-2.8V10c0-2 1-3.3 3.2-3"/><path d="M9 11.2h5.7"/></symbol>
+  <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18Z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-bug" viewBox="0 0 24 24"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></symbol>
+  <symbol id="i-continue" viewBox="0 0 24 24"><path d="M5 4v16"/><path d="M9.5 5.4v13.2a1 1 0 0 0 1.55.84l9.2-6.6a1 1 0 0 0 0-1.68l-9.2-6.6A1 1 0 0 0 9.5 5.4Z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+  <symbol id="i-step-over" viewBox="0 0 24 24"><circle cx="12" cy="18" r="1.4"/><path d="M3 13a9 9 0 0 1 16.5-5"/><path d="M20 3v5h-5"/></symbol>
+  <symbol id="i-step-into" viewBox="0 0 24 24"><path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><circle cx="12" cy="20" r="1.4"/></symbol>
+  <symbol id="i-step-out" viewBox="0 0 24 24"><path d="M12 15V4"/><path d="m7 8 5-5 5 5"/><circle cx="12" cy="20" r="1.4"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></symbol>
+  <symbol id="i-circle-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></symbol>
+</svg>
 
-  <!-- ── MAIN 3-COLUMN LAYOUT ────────────────────────────────────────── -->
-  <div id="main-layout">
+<div class="app" id="app" data-sidebar="open" data-view="code" data-right-tab="preview" data-debug="idle">
 
-    <!-- LEFT: Flow diagram -->
-    <div id="panel-flow">
-      <div class="panel-header">
-        <span>Flow Diagram</span>
-        <button class="panel-btn" id="btn-flow-refresh" title="Refresh">&#8635;</button>
-      </div>
-      <div id="flow-container">
-        <svg id="flow-svg" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <marker id="arrowhead" markerWidth="8" markerHeight="6"
-                    refX="8" refY="3" orient="auto">
-              <polygon points="0 0, 8 3, 0 6" fill="#4a5568"/>
-            </marker>
-          </defs>
-          <g id="flow-graph"></g>
-        </svg>
+  <!-- ── Title bar ──────────────────────────────────────────────────────── -->
+  <header class="titlebar toolbar" role="banner">
+    <div class="tb-left">
+      <button class="brand" id="btn-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="app-menu">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8"/><rect x="8" y="8" width="7" height="7" rx="1.5" class="px a"/><rect x="17" y="8" width="7" height="7" rx="1.5" class="px b"/><rect x="8" y="17" width="7" height="7" rx="1.5" class="px b"/><rect x="17" y="17" width="7" height="7" rx="1.5" class="px c"/></svg>
+        <span class="brand-name">PixLang</span>
+        <svg class="icon icon-xs muted"><use href="#i-chevron-down"/></svg>
+      </button>
+      <span class="tb-divider" aria-hidden="true"></span>
+      <div class="crumb" id="crumb" title="">
+        <svg class="icon icon-sm muted"><use href="#i-file-code"/></svg>
+        <span class="crumb-dir" id="crumb-dir"></span>
+        <span class="crumb-file" id="crumb-file">untitled.pxl</span>
+        <span class="dirty-dot" id="dirty-dot" role="img" aria-label="Unsaved changes" hidden></span>
       </div>
     </div>
 
-    <!-- CENTER: Editor + Console -->
-    <div id="panel-center">
-      <div id="editor-container">
-        <div id="codemirror-host"></div>
+    <div class="tb-center">
+      <div class="run-group">
+        <button class="btn btn-primary" id="btn-run" aria-keyshortcuts="Control+Enter Meta+Enter">
+          <svg class="icon icon-sm run-icon" aria-hidden="true"><use href="#i-play"/></svg>
+          <svg class="icon icon-sm spin-icon" aria-hidden="true"><use href="#i-loader"/></svg>
+          <span>Run</span>
+          <kbd class="kbd-on-primary" data-kbd="mod+enter">⌘↵</kbd>
+        </button>
+        <button class="toggle" id="btn-auto" role="switch" aria-checked="false" title="Re-run automatically after edits">
+          <span class="switch" aria-hidden="true"><span class="knob"></span></span>
+          <span>Auto</span>
+        </button>
       </div>
-      <div id="panel-console">
-        <div class="panel-header" id="console-toggle" title="Toggle console">
-          <span>&#9654; Console</span>
-          <button class="panel-btn" id="btn-console-clear" title="Clear">&#10005;</button>
+      <span class="tb-divider" aria-hidden="true"></span>
+      <div class="debug-group" id="debug-group" role="group" aria-label="Debugger" data-state="idle">
+        <button class="btn btn-secondary btn-debug" id="btn-debug" aria-keyshortcuts="Control+Shift+D Meta+Shift+D" title="Start debugging">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-bug"/></svg><span>Debug</span>
+        </button>
+        <div class="dbg-controls" role="toolbar" aria-label="Debug controls">
+          <button class="dbg-btn dbg-continue" id="dbg-continue" disabled><svg class="icon fill" aria-hidden="true"><use href="#i-continue"/></svg></button>
+          <button class="dbg-btn" id="dbg-step-over" disabled><svg class="icon" aria-hidden="true"><use href="#i-step-over"/></svg></button>
+          <button class="dbg-btn" id="dbg-step-into" disabled><svg class="icon" aria-hidden="true"><use href="#i-step-into"/></svg></button>
+          <button class="dbg-btn" id="dbg-step-out" disabled><svg class="icon" aria-hidden="true"><use href="#i-step-out"/></svg></button>
+          <button class="dbg-btn dbg-pause" id="dbg-pause" disabled><svg class="icon fill" aria-hidden="true"><use href="#i-pause"/></svg></button>
+          <button class="dbg-btn dbg-stop" id="dbg-stop" disabled><svg class="icon fill" aria-hidden="true"><use href="#i-stop"/></svg></button>
         </div>
-        <div id="console-output"></div>
       </div>
+      <span class="tb-divider" aria-hidden="true"></span>
+      <button class="diag-pill" id="btn-diag" title="Show problems" aria-label="Problems">
+        <span class="diag diag-err"><svg class="icon icon-xs"><use href="#i-x-circle"/></svg><span id="count-err">0</span></span>
+        <span class="diag diag-warn"><svg class="icon icon-xs"><use href="#i-alert"/></svg><span id="count-warn">0</span></span>
+      </button>
     </div>
 
-    <!-- RIGHT: Docs + Examples -->
-    <div id="panel-right">
-      <div id="panel-docs">
-        <div class="panel-header"><span>Commands</span></div>
-        <input type="text" id="cmd-search" placeholder="&#128269; Search commands…" autocomplete="off">
-        <div id="cmd-list"></div>
-      </div>
-      <div id="panel-examples">
-        <div class="panel-header"><span>Examples</span></div>
-        <div id="example-list"></div>
-      </div>
+    <div class="tb-right">
+      <button class="icon-btn" id="btn-save" aria-label="Save file" title="Save (Ctrl/⌘+S)"><svg class="icon"><use href="#i-save"/></svg></button>
+      <button class="icon-btn" id="btn-theme" aria-label="Toggle theme" title="Toggle theme"><svg class="icon"><use href="#i-theme"/></svg></button>
+      <button class="palette-trigger" id="btn-palette" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">
+        <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"/></svg>
+        <span class="pt-label">Search or run a command</span>
+        <kbd data-kbd="mod+k">⌘K</kbd>
+      </button>
     </div>
+  </header>
 
-  </div><!-- /#main-layout -->
+  <!-- ── Workbench ──────────────────────────────────────────────────────── -->
+  <main class="workbench" id="workbench">
 
-  <!-- ── FLOATING IMAGE PREVIEW ──────────────────────────────────────── -->
-  <div id="preview-panel" style="display:none">
-    <div id="preview-header">
-      <span>&#128247; Preview</span>
-      <div id="preview-header-btns">
-        <button id="btn-preview-zoom-in"  title="Zoom in">+</button>
-        <button id="btn-preview-zoom-out" title="Zoom out">&#8722;</button>
-        <button id="btn-preview-reset"    title="Reset zoom">&#8635;</button>
-        <button id="btn-preview-close"    title="Close">&#215;</button>
+    <nav class="activitybar" aria-label="Side views" role="tablist" aria-orientation="vertical">
+      <button class="act" role="tab" id="act-files" data-side="files" aria-selected="true" aria-controls="side-files" title="Files">
+        <svg class="icon icon-lg"><use href="#i-files"/></svg><span class="sr-only">Files</span></button>
+      <button class="act" role="tab" id="act-commands" data-side="commands" aria-selected="false" aria-controls="side-commands" title="Commands">
+        <svg class="icon icon-lg"><use href="#i-blocks"/></svg><span class="sr-only">Commands</span></button>
+      <button class="act" role="tab" id="act-examples" data-side="examples" aria-selected="false" aria-controls="side-examples" title="Examples">
+        <svg class="icon icon-lg"><use href="#i-book"/></svg><span class="sr-only">Examples</span></button>
+      <button class="act" role="tab" id="act-debug" data-side="debug" aria-selected="false" aria-controls="side-debug" title="Debug">
+        <svg class="icon icon-lg"><use href="#i-bug"/></svg><span class="sr-only">Debug</span></button>
+      <button class="act" role="tab" id="act-flow" data-side="flow" aria-selected="false" title="Toggle flow pane">
+        <svg class="icon icon-lg"><use href="#i-flow"/></svg><span class="sr-only">Flow</span></button>
+      <span class="act-spacer"></span>
+      <button class="act act-plain" id="act-shortcuts" title="Keyboard shortcuts">
+        <svg class="icon icon-lg"><use href="#i-command"/></svg><span class="sr-only">Keyboard shortcuts</span></button>
+    </nav>
+
+    <aside class="sidebar" id="sidebar" aria-label="Sidebar">
+      <section class="side-view" id="side-files" role="tabpanel" aria-labelledby="act-files">
+        <header class="pane-head">
+          <h2 class="pane-title">Files</h2>
+          <div class="pane-actions">
+            <button class="icon-btn sm" id="btn-new-file" aria-label="New file" title="New file"><svg class="icon icon-sm"><use href="#i-plus"/></svg></button>
+            <button class="icon-btn sm" id="btn-refresh-files" aria-label="Refresh" title="Refresh"><svg class="icon icon-sm"><use href="#i-refresh"/></svg></button>
+          </div>
+        </header>
+        <div class="ws-name" id="ws-name"><svg class="icon icon-xs"><use href="#i-folder"/></svg><span></span></div>
+        <div class="list scroll" id="file-list" role="listbox" aria-label="Pipeline files"></div>
+      </section>
+
+      <section class="side-view" id="side-commands" role="tabpanel" aria-labelledby="act-commands" hidden>
+        <header class="pane-head"><h2 class="pane-title">Commands</h2><span class="pane-count" id="cmd-count"></span></header>
+        <div class="search-field">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"/></svg>
+          <input type="search" id="cmd-search" placeholder="Filter commands" autocomplete="off" spellcheck="false" aria-label="Filter commands">
+        </div>
+        <div class="list scroll" id="cmd-list" role="listbox" aria-label="Commands"></div>
+      </section>
+
+      <section class="side-view" id="side-examples" role="tabpanel" aria-labelledby="act-examples" hidden>
+        <header class="pane-head"><h2 class="pane-title">Examples</h2></header>
+        <div class="list scroll" id="example-list" role="listbox" aria-label="Examples"></div>
+      </section>
+      <section class="side-view" id="side-debug" role="tabpanel" aria-labelledby="act-debug" hidden>
+        <header class="pane-head">
+          <h2 class="pane-title">Debug</h2>
+          <span class="pane-sub" id="dbg-sub"></span>
+          <div class="pane-actions">
+            <button class="icon-btn sm" id="dbg-clear-bps" aria-label="Remove all breakpoints" title="Remove all breakpoints"><svg class="icon icon-sm"><use href="#i-trash"/></svg></button>
+          </div>
+        </header>
+        <div class="dbg-status" id="dbg-status" data-state="idle" aria-live="off">
+          <span class="dbg-status-dot" id="dbg-status-dot" aria-hidden="true"></span>
+          <div class="dbg-status-text">
+            <div class="dbg-status-title" id="dbg-status-title">Not debugging</div>
+            <div class="dbg-status-sub" id="dbg-status-sub" hidden></div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="dbg-start"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-bug"/></svg><span id="dbg-start-label">Start debugging</span><kbd class="kbd-on-primary" data-kbd="mod+shift+d">⌘⇧D</kbd></button>
+        </div>
+        <div class="dbg-scroll scroll" id="dbg-scroll">
+          <section class="dbg-sec" data-sec="stack">
+            <button class="dbg-sec-head" aria-expanded="true" aria-controls="dbg-stack"><svg class="icon icon-xs chev" aria-hidden="true"><use href="#i-chevron-down"/></svg><span class="dbg-sec-title">Call stack</span><span class="badge" id="dbg-stack-count" hidden></span></button>
+            <div class="dbg-sec-body" id="dbg-stack"></div>
+          </section>
+          <section class="dbg-sec" data-sec="vars">
+            <button class="dbg-sec-head" aria-expanded="true" aria-controls="dbg-vars"><svg class="icon icon-xs chev" aria-hidden="true"><use href="#i-chevron-down"/></svg><span class="dbg-sec-title">Variables</span><span class="badge" id="dbg-vars-count" hidden></span></button>
+            <div class="dbg-sec-body" id="dbg-vars"></div>
+          </section>
+          <section class="dbg-sec" data-sec="watch">
+            <button class="dbg-sec-head" aria-expanded="true" aria-controls="dbg-watch"><svg class="icon icon-xs chev" aria-hidden="true"><use href="#i-chevron-down"/></svg><span class="dbg-sec-title">Watch</span><span class="badge" id="dbg-watch-count" hidden></span></button>
+            <div class="dbg-sec-body" id="dbg-watch">
+              <form class="dbg-watch-form" id="dbg-watch-form" autocomplete="off">
+                <svg class="icon icon-xs" aria-hidden="true"><use href="#i-plus"/></svg>
+                <input id="dbg-watch-input" type="text" placeholder="Add expression" spellcheck="false" aria-label="Add watch expression" maxlength="500">
+              </form>
+              <div id="dbg-watch-list"></div>
+            </div>
+          </section>
+          <section class="dbg-sec" data-sec="buffers">
+            <button class="dbg-sec-head" aria-expanded="true" aria-controls="dbg-buffers"><svg class="icon icon-xs chev" aria-hidden="true"><use href="#i-chevron-down"/></svg><span class="dbg-sec-title">Buffers</span><span class="badge" id="dbg-buffers-count" hidden></span></button>
+            <div class="dbg-sec-body" id="dbg-buffers"></div>
+          </section>
+          <section class="dbg-sec" data-sec="bps">
+            <button class="dbg-sec-head" aria-expanded="true" aria-controls="dbg-bps"><svg class="icon icon-xs chev" aria-hidden="true"><use href="#i-chevron-down"/></svg><span class="dbg-sec-title">Breakpoints</span><span class="badge" id="dbg-bps-count" hidden></span></button>
+            <div class="dbg-sec-body" id="dbg-bps"></div>
+          </section>
+        </div>
+      </section>
+    </aside>
+    <div class="splitter v" data-split="sidebar" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
+
+    <section class="center" aria-label="Editor">
+      <div class="editor-pane">
+        <div id="codemirror-host"></div>
+        <div class="dbg-banner" id="dbg-banner"><svg class="icon icon-xs" aria-hidden="true"><use href="#i-bug"/></svg><span>Read-only while debugging</span></div>
       </div>
+      <div class="splitter h" data-split="bottom" role="separator" aria-orientation="horizontal" aria-label="Resize bottom panel" tabindex="0"></div>
+      <section class="bottom-panel" id="bottom-panel">
+        <div class="tabs" role="tablist" aria-label="Bottom panel">
+          <button class="tab" role="tab" id="tab-problems" data-bottom="problems" aria-selected="true" aria-controls="bp-problems">Problems <span class="badge" id="badge-problems">0</span></button>
+          <button class="tab" role="tab" id="tab-output" data-bottom="output" aria-selected="false" aria-controls="bp-output">Output</button>
+          <button class="tab" role="tab" id="tab-timing" data-bottom="timing" aria-selected="false" aria-controls="bp-timing">Timing</button>
+          <span class="tabs-spacer"></span>
+          <button class="icon-btn sm" id="btn-clear-output" aria-label="Clear output" title="Clear output"><svg class="icon icon-sm"><use href="#i-trash"/></svg></button>
+          <button class="icon-btn sm" id="btn-toggle-bottom" aria-label="Collapse panel" title="Collapse panel"><svg class="icon icon-sm"><use href="#i-chevron-down"/></svg></button>
+        </div>
+        <div class="bp-body">
+          <div class="bp-view scroll" id="bp-problems" role="tabpanel" aria-labelledby="tab-problems"></div>
+          <div class="bp-view scroll" id="bp-output" role="tabpanel" aria-labelledby="tab-output" hidden><pre class="output" id="output-pre"></pre></div>
+          <div class="bp-view scroll" id="bp-timing" role="tabpanel" aria-labelledby="tab-timing" hidden></div>
+        </div>
+      </section>
+    </section>
+    <div class="splitter v" data-split="right" role="separator" aria-orientation="vertical" aria-label="Resize preview" tabindex="0"></div>
+
+    <section class="right" aria-label="Preview and flow">
+      <div class="right-tabs tabs" role="tablist" aria-label="Right pane">
+        <button class="tab" role="tab" data-right="preview" aria-selected="true">Preview</button>
+        <button class="tab" role="tab" data-right="flow" aria-selected="false">Flow</button>
+      </div>
+      <section class="preview-pane" id="preview-pane" aria-label="Preview">
+        <header class="pane-head">
+          <h2 class="pane-title">Preview</h2>
+          <div class="segmented" role="tablist" aria-label="Preview mode" id="preview-modes">
+            <button role="tab" data-mode="output" aria-selected="true"><svg class="icon icon-xs"><use href="#i-image"/></svg>Output</button>
+            <button role="tab" data-mode="compare" aria-selected="false"><svg class="icon icon-xs"><use href="#i-compare"/></svg>Compare</button>
+            <button role="tab" data-mode="steps" aria-selected="false"><svg class="icon icon-xs"><use href="#i-layers"/></svg>Steps</button>
+          </div>
+          <div class="pane-actions">
+            <button class="icon-btn sm" id="pv-zoom-out" aria-label="Zoom out" title="Zoom out"><svg class="icon icon-sm"><use href="#i-zoom-out"/></svg></button>
+            <button class="zoom-readout" id="pv-zoom" title="Toggle fit / 1:1">Fit</button>
+            <button class="icon-btn sm" id="pv-zoom-in" aria-label="Zoom in" title="Zoom in"><svg class="icon icon-sm"><use href="#i-zoom-in"/></svg></button>
+            <button class="icon-btn sm" id="pv-fit" aria-label="Fit to view" title="Fit"><svg class="icon icon-sm"><use href="#i-fit"/></svg></button>
+          </div>
+        </header>
+        <div class="viewport" id="pv-viewport" tabindex="0" aria-label="Image preview. Scroll to zoom, drag to pan.">
+          <div class="pv-stage" id="pv-stage">
+            <img id="pv-img-before" class="pv-img pv-before" alt="" draggable="false" hidden>
+            <img id="pv-img" class="pv-img" alt="Pipeline output" draggable="false" hidden>
+          </div>
+          <div class="pv-compare-handle" id="pv-handle" role="slider" tabindex="0" aria-label="Before / after split" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" hidden>
+            <span class="grip"></span>
+          </div>
+          <span class="pv-tag pv-tag-l" id="pv-tag-before" hidden>Before</span>
+          <span class="pv-tag pv-tag-r" id="pv-tag-after" hidden>After</span>
+          <div class="pv-empty" id="pv-empty">
+            <div class="pv-empty-icon"><svg class="icon icon-xl"><use href="#i-image"/></svg></div>
+            <p class="pv-empty-title">No output yet</p>
+            <p class="pv-empty-sub">Run the pipeline with <kbd data-kbd="mod+enter">⌘↵</kbd> to see the result here.</p>
+          </div>
+          <div class="pv-stale" id="pv-stale" hidden>
+            <svg class="icon icon-sm"><use href="#i-alert"/></svg>
+            <span id="pv-stale-text">Run failed — showing partial result</span>
+          </div>
+          <div class="pv-debug" id="pv-debug" role="status" hidden><span class="pv-debug-dot" aria-hidden="true"></span><span class="pv-debug-text">Paused</span></div>
+          <div class="pv-busy" id="pv-busy" hidden><span class="bar"></span></div>
+        </div>
+        <footer class="pv-meta">
+          <span class="pv-meta-text" id="pv-meta">—</span>
+          <a class="btn btn-ghost btn-sm" id="pv-download" download="pixlang-output.png" href="#" aria-disabled="true">
+            <svg class="icon icon-sm"><use href="#i-download"/></svg>PNG</a>
+        </footer>
+        <div class="strip scroll-x" id="pv-strip" role="listbox" aria-label="Checkpoints" aria-orientation="horizontal"></div>
+      </section>
+      <div class="splitter h" data-split="flow" role="separator" aria-orientation="horizontal" aria-label="Resize flow pane" tabindex="0"></div>
+      <section class="flow-pane" id="flow-pane" aria-label="Flow">
+        <header class="pane-head">
+          <h2 class="pane-title">Flow</h2>
+          <span class="pane-sub" id="flow-sub"></span>
+          <div class="pane-actions">
+            <button class="icon-btn sm" id="flow-zoom-out" aria-label="Zoom out flow" title="Zoom out"><svg class="icon icon-sm"><use href="#i-zoom-out"/></svg></button>
+            <button class="icon-btn sm" id="flow-zoom-in" aria-label="Zoom in flow" title="Zoom in"><svg class="icon icon-sm"><use href="#i-zoom-in"/></svg></button>
+          </div>
+        </header>
+        <div class="flow-scroll scroll" id="flow-container">
+          <svg id="flow-svg" xmlns="http://www.w3.org/2000/svg" role="tree" aria-label="Pipeline flow"></svg>
+          <div class="flow-empty" id="flow-empty" hidden></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <!-- ── Status bar ─────────────────────────────────────────────────────── -->
+  <footer class="statusbar" role="contentinfo">
+    <span class="sb-item" id="sb-cursor">Ln 1, Col 1</span>
+    <span class="sb-item">PixLang</span>
+    <span class="sb-item" id="sb-commands">— commands</span>
+    <span class="sb-spacer"></span>
+    <span class="sb-item" id="sb-autosave"></span>
+    <span class="sb-item sb-run" id="sb-run">Not run yet</span>
+  </footer>
+
+  <!-- ── Mobile tab bar ─────────────────────────────────────────────────── -->
+  <nav class="mobile-tabs" aria-label="Views" role="tablist">
+    <button role="tab" data-view="files" aria-selected="false"><svg class="icon"><use href="#i-files"/></svg><span>Files</span></button>
+    <button role="tab" data-view="code" aria-selected="true"><svg class="icon"><use href="#i-code"/></svg><span>Code</span></button>
+    <button role="tab" data-view="preview" aria-selected="false"><svg class="icon"><use href="#i-eye"/></svg><span>Preview</span></button>
+    <button role="tab" data-view="flow" aria-selected="false"><svg class="icon"><use href="#i-flow"/></svg><span>Flow</span></button>
+    <button role="tab" data-view="problems" aria-selected="false"><svg class="icon"><use href="#i-list"/></svg><span>Problems</span><span class="badge dot" id="badge-mobile" hidden></span></button>
+  </nav>
+</div>
+
+<!-- ── Overlays ─────────────────────────────────────────────────────────── -->
+<div class="menu" id="app-menu" role="menu" aria-label="PixLang menu" hidden></div>
+
+<div class="overlay" id="palette" hidden>
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="palette-input">
+      <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="palette-input" type="text" placeholder="Type a command, file, or PixLang command…" autocomplete="off" spellcheck="false"
+             role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list">
+      <kbd>esc</kbd>
     </div>
-    <div id="preview-body">
-      <img id="preview-img" src="" alt="Pipeline output" draggable="false">
-    </div>
-    <div id="preview-footer">
-      <span id="preview-info"></span>
-    </div>
+    <div class="palette-list scroll" id="palette-list" role="listbox" aria-label="Results"></div>
+    <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> select</span><span><kbd>esc</kbd> close</span></div>
   </div>
+</div>
 
-  <!-- hidden file input for workspace load -->
-  <input type="file" id="file-load-input" accept=".json,.pxl" style="display:none">
+<div class="overlay" id="dialog" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <h3 id="dialog-title"></h3>
+    <p id="dialog-body"></p>
+    <input id="dialog-input" type="text" spellcheck="false" autocomplete="off" hidden>
+    <p class="dialog-error" id="dialog-error" hidden></p>
+    <div class="dialog-actions" id="dialog-actions"></div>
+  </div>
+</div>
 
-  <script type="module" src="/static/js/app.js"></script>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<div class="sr-only" id="dbg-live" role="status" aria-live="polite" aria-atomic="true"></div>
+
+<script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

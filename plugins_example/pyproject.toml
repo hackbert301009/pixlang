@@ -1,0 +1,21 @@
+# Example third-party plugin package.
+#   pip install -e plugins_example/
+# After installing, `pixlang plugins` lists "pixlang-denoise" and the
+# commands NLM_DENOISE / BILATERAL are available in every pipeline
+# (entry-point plugins load automatically; no --trust-plugins needed).
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pixlang-denoise"
+version = "0.1.0"
+description = "Example PixLang plugin: non-local-means and bilateral denoising"
+requires-python = ">=3.9"
+dependencies = ["pixlang>=0.5", "opencv-python>=4.8", "numpy>=1.24"]
+
+[project.entry-points."pixlang.commands"]
+pixlang-denoise = "pixlang_denoise:register"
+
+[tool.setuptools]
+packages = ["pixlang_denoise"]

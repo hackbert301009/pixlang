@@ -1,0 +1,59 @@
+# PixLang v0.5 — Buffers, pointers and bit planes
+#
+# Shows the "hardware" layer: typed buffers, PEEK/POKE, live pointer views,
+# WITH blocks, reinterpreting bytes, and whole-buffer bitwise arithmetic.
+#
+# Run: pixlang run examples/v05/bitplanes_pointers.pxl --verbose
+
+LOAD "examples/sample.jpg"
+RESIZE 640 480
+GRAYSCALE
+BUF orig                                  # copy of _ into slot "orig"
+
+ASSERT orig.width == 640
+ASSERT orig.dtype == "u8" and orig.channels == 1
+ASSERT orig.stride == 640                 # bytes per row
+ASSERT SIZEOF(u16) == 2
+
+# ── Bit planes: keep the 4 most significant bits, show them full-range ──────
+SET hi orig & 0xF0
+SET lo (orig & 0x0F) << 4
+SET swapped hi >> 4 | lo                  # nibble swap, wraps like hardware
+ASSERT swapped[5, 5] == ((orig[5, 5] >> 4) | ((orig[5, 5] << 4) & 0xFF))
+BUF plane ((orig >> 5) & 1) * 255         # bit plane 5 as a black/white mask
+
+# ── PEEK / POKE ──────────────────────────────────────────────────────────────
+SET before orig[12, 40]
+SET orig[12, 40] 255
+ASSERT orig[12, 40] == 255
+SET orig[12, 40] 256                      # u8 store wraps around to 0
+ASSERT orig[12, 40] == 0
+
+# ── Pointers: a live view into a region of a buffer ──────────────────────────
+SET p &orig[40:200, 60:300]
+ASSERT p.width == 240 and p.height == 160
+WITH *p                                   # runs in place on the region
+    BLUR 9
+    INVERT
+END
+SET q &orig[0:20, 0:640]
+*q = 0                                    # write through the pointer
+
+# ── Reinterpret bytes: four u8 pixels as one u32 word (no copy) ─────────────
+SET words orig AS u32
+ASSERT words.size * 4 == orig.size
+SET f CAST(orig, f32) / 255.0             # converting copy
+ASSERT max(f) <= 1.0
+
+# ── Compose a canvas: left = processed original, right = bit plane 5 ────────
+ALLOC canvas 1280 480 1 u8 0
+SET left &canvas[0:480, 0:640]
+SET right &canvas[0:480, 640:1280]
+*left = orig
+*right = plane
+USE canvas
+DRAW_TEXT "orig + pointers" 12 470 0.8 255 255 255 2 "duplex"
+DRAW_TEXT "bit plane 5" 652 470 0.8 255 255 255 2 "duplex"
+
+FREE orig, plane
+SAVE "examples/v05/out/bitplanes_pointers.png"

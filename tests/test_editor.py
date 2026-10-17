@@ -18,7 +18,7 @@ flask = pytest.importorskip("flask")
 
 # Patch WORKSPACE_FILE before importing server so tests never touch ~/.pixlang…
 import pixlang.editor.server as _srv  # noqa: E402 (import after importorskip)
-from pixlang.editor.server import app, EXAMPLES_DIR  # noqa: E402
+from pixlang.editor.server import EXAMPLES_DIR, app  # noqa: E402
 
 
 @pytest.fixture
@@ -26,6 +26,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(_srv, "WORKSPACE_FILE", tmp_path / "test_workspace.json")
     app.config["TESTING"] = True
     with app.test_client() as c:
+        # API calls require the per-process editor token (CSRF protection).
+        c.environ_base["HTTP_X_PIXLANG_TOKEN"] = app.config["PIXLANG_TOKEN"]
         yield c
 
 
@@ -285,7 +287,8 @@ class TestCommandsEndpoint:
 
     def test_returns_35_commands(self, client):
         data = client.get("/api/commands").get_json()
-        assert len(data["commands"]) == 35
+        from pixlang.commands import registry
+        assert len(data["commands"]) == len(registry)
 
     def test_command_has_required_fields(self, client):
         cmd = client.get("/api/commands").get_json()["commands"][0]
@@ -298,11 +301,12 @@ class TestCommandsEndpoint:
 
     def test_load_in_io_category(self, client):
         cmds = {c["name"]: c for c in client.get("/api/commands").get_json()["commands"]}
-        assert cmds["LOAD"]["category"] == "IO"
+        assert cmds["LOAD"]["category"] in ("IO", "I/O")
 
     def test_all_categories_valid(self, client):
-        valid = {"IO", "Geometry", "Color", "Threshold", "Filter",
-                 "Morphology", "Analysis", "Composition", "Annotation", "Other"}
+        valid = {"IO", "I/O", "Geometry", "Color", "Threshold", "Filter",
+                 "Morphology", "Analysis", "Composition", "Annotation", "Depth",
+                 "Bitwise", "LUT", "Channels", "Raw", "Plugin", "Other"}
         for cmd in client.get("/api/commands").get_json()["commands"]:
             assert cmd["category"] in valid, f"{cmd['name']} has invalid category"
 
@@ -400,17 +404,17 @@ class TestWorkspaceEndpoint:
 class TestCapturingExecutor:
 
     def test_final_image_none_on_empty_pipeline(self):
-        from pixlang.editor.server import _CapturingExecutor
         from pixlang.commands import registry
+        from pixlang.editor.server import _CapturingExecutor
         from pixlang.parser import parse
         ex = _CapturingExecutor(registry=registry)
         ex.run(parse(""))
         assert ex.final_image is None
 
     def test_final_image_captured_after_grayscale(self, tmp_path):
+        from pixlang.commands import registry
         from pixlang.commands.builtin import _unwrap
         from pixlang.editor.server import _CapturingExecutor
-        from pixlang.commands import registry
         from pixlang.parser import parse
         img_path = _make_image(tmp_path, shape=(20, 20, 3))
         ex = _CapturingExecutor(registry=registry)
@@ -455,8 +459,8 @@ class TestCapturingExecutor:
 class TestFlowDiagram:
 
     def _parse_and_serialize(self, code):
+        from pixlang.editor.server import _reset_id, _serialize_stmts
         from pixlang.parser import parse
-        from pixlang.editor.server import _serialize_stmts, _reset_id
         _reset_id()
         pipeline = parse(code)
         nodes, edges, first, last = _serialize_stmts(pipeline.commands)

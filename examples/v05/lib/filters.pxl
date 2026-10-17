@@ -1,0 +1,36 @@
+# PixLang v0.5 — reusable filter library (imported by functions_modules.pxl)
+#
+# Only EXPORTed functions are visible to importers.
+
+SET default_k 3
+
+# ALL_CAPS FUNC = command function: called like a command, works on _
+EXPORT FUNC SHARPEN_TWICE(k)
+    SHARPEN
+    SHARPEN
+    BLUR $k
+ENDFUNC
+
+EXPORT FUNC LABEL(text)
+    DRAW_TEXT $text 12 30 0.8 255 255 80 2 "duplex"
+ENDFUNC
+
+# lowercase FUNC = expression function: returns a value
+EXPORT FUNC clamp(v, lo, hi)
+    IF $v < $lo
+        RETURN $lo
+    ENDIF
+    RETURN min($v, $hi)
+ENDFUNC
+
+EXPORT FUNC odd(n)
+    IF $n % 2 == 0
+        RETURN $n + 1
+    ENDIF
+    RETURN $n
+ENDFUNC
+
+# Not exported: private helper
+FUNC square(x)
+    RETURN $x * $x
+ENDFUNC

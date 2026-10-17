@@ -2,11 +2,11 @@
 """
 PixLang — A minimal, human-readable DSL for computer vision pipelines.
 """
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __author__ = "PixLang Contributors"
 
-from .parser import parse
-from .executor import Executor
 from .commands import registry
+from .executor import Executor
+from .parser import parse
 
 __all__ = ["parse", "Executor", "registry"]

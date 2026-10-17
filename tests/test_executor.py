@@ -5,8 +5,9 @@ Uses synthetic numpy arrays — no disk I/O required.
 """
 import numpy as np
 import pytest
-from pixlang.commands.builtin import _wrap, _unwrap
+
 from pixlang.commands import registry
+from pixlang.commands.builtin import _unwrap, _wrap
 from pixlang.executor import Executor
 from pixlang.parser.ast_nodes import Command, Pipeline
 
