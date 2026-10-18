@@ -76,8 +76,34 @@ def test_local_plugin_requires_trust(tmp_path, img):
     assert "--trust-plugins" in r.stderr
     r = cli("run", "p.pxl", "--trust-plugins", cwd=tmp_path)
     assert r.returncode == 0, r.stderr
+
+
+def test_bundled_toml_alone_does_not_grant_trust(tmp_path, img):
+    """A downloaded bundle ships pipeline + plugin + pixlang.toml. It must not run."""
+    (tmp_path / "p.pxl").write_text('LOAD "in.png"\nLOCALCMD\n')
+    (tmp_path / "p.plugins.py").write_text(PLUGIN)
     (tmp_path / "pixlang.toml").write_text("[plugins]\ntrust_local = true\n")
+
+    r = cli("run", "p.pxl", cwd=tmp_path)
+    assert r.returncode == 1
+    assert "pixlang trust" in r.stderr and "not a confirmed workspace" in r.stderr
+
+    assert cli("trust", str(tmp_path), cwd=tmp_path).returncode == 0
     assert cli("run", "p.pxl", cwd=tmp_path).returncode == 0
+
+
+def test_trust_list_and_remove(tmp_path, img):
+    (tmp_path / "p.pxl").write_text('LOAD "in.png"\nLOCALCMD\n')
+    (tmp_path / "p.plugins.py").write_text(PLUGIN)
+    (tmp_path / "pixlang.toml").write_text("[plugins]\ntrust_local = true\n")
+
+    cli("trust", ".", cwd=tmp_path)
+    assert str(tmp_path.resolve()) in cli("trust", "--list", cwd=tmp_path).stdout
+    assert cli("run", "p.pxl", cwd=tmp_path).returncode == 0
+
+    assert cli("trust", "--remove", str(tmp_path), cwd=tmp_path).returncode == 0
+    assert cli("run", "p.pxl", cwd=tmp_path).returncode == 1
+    assert "No confirmed workspaces" in cli("trust", "--list", cwd=tmp_path).stdout
 
 
 def test_batch_subcommand_and_mode(tmp_path):

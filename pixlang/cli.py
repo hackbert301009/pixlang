@@ -11,6 +11,7 @@ Commands:
     validate pipeline.pxl
     commands [--source SRC] [--category CAT]
     plugins  [--trust-plugins]
+    trust    [DIR] [--list] [--remove DIR]
     new      <name>
     editor   [--port 7478] [--no-browser]
     --version
@@ -25,6 +26,7 @@ import argparse
 import sys
 import traceback
 from pathlib import Path
+from typing import Optional
 
 from pixlang._style import Style, is_tty
 
@@ -85,6 +87,14 @@ def main(argv=None):
     pp.add_argument("--trust-plugins", action="store_true",
                     help="Also load ~/.pixlang/plugins/*.py")
 
+    tp = sub.add_parser("trust", help="Confirm a directory whose pixlang.toml may "
+                                      "trust local plugins")
+    tp.add_argument("dir", nargs="?", default=".", metavar="DIR",
+                    help="Directory to confirm (default: current directory)")
+    tp.add_argument("--list", action="store_true", help="Show the confirmed directories")
+    tp.add_argument("--remove", metavar="DIR", default=None,
+                    help="Withdraw the confirmation for DIR")
+
     np_ = sub.add_parser("new",     help="Scaffold a new pipeline project")
     np_.add_argument("name", help="Project / pipeline name")
 
@@ -118,6 +128,7 @@ def main(argv=None):
         "link":     lambda: _cmd_link(args.file, args.map),
         "commands": lambda: _cmd_list_commands(args.source, args.category),
         "plugins":  lambda: _cmd_plugins(args.trust_plugins),
+        "trust":    lambda: _cmd_trust(args.dir, args.list, args.remove),
         "new":      lambda: _cmd_new(args.name),
         "editor":   lambda: _cmd_editor(args.port, args.no_browser, args.workspace,
                                        args.timeout, args.no_plugins),
@@ -162,13 +173,23 @@ def _variables(cfg, var_specs) -> dict:
 
 
 def _make_loader(args, path: Path, cfg):
-    """PluginLoader honouring --no-plugins, pixlang.toml and --trust-plugins."""
+    """PluginLoader honouring --no-plugins, --trust-plugins and workspace trust."""
     from pixlang import registry
-    from pixlang.plugins import PluginLoader, trust_from_config
+    from pixlang.plugins import PluginLoader, config_trust_request, is_trusted, trust_hint_for
     if args.no_plugins or not getattr(cfg, "plugins", True):
         return None
-    trust = bool(args.trust_plugins) or trust_from_config(path.parent)
-    return PluginLoader(registry, trust_local=trust)
+    if args.trust_plugins:
+        return PluginLoader(registry, trust_local=True)
+
+    # A pixlang.toml may ask for trust, but only a confirmed workspace grants it:
+    # the toml can have arrived with the pipeline.
+    cfg_file = config_trust_request(path.parent)
+    if cfg_file is None:
+        return PluginLoader(registry, trust_local=False)
+    workspace = cfg_file.parent
+    if is_trusted(workspace):
+        return PluginLoader(registry, trust_local=True)
+    return PluginLoader(registry, trust_local=False, trust_hint=trust_hint_for(workspace))
 
 
 # ── run / batch ───────────────────────────────────────────────────────────────
@@ -405,6 +426,53 @@ def _cmd_plugins(trust: bool = False):
         print(f"       path     : {p}\n")
 
 
+# ── trust ─────────────────────────────────────────────────────────────────────
+
+def _cmd_trust(directory: str, show_list: bool, remove: Optional[str] = None):
+    """Manage the directories whose pixlang.toml may trust local plugins."""
+    from pixlang.plugins import (
+        add_trusted,
+        overbroad_warning,
+        remove_trusted,
+        trust_file,
+        trusted_paths,
+    )
+    S = Style()
+
+    if show_list:
+        paths = trusted_paths()
+        if not paths:
+            print(f"  {S.dim}No confirmed workspaces.{S.reset}\n")
+            print(f"  Trust file : {trust_file()}\n")
+            return
+        print(f"  {S.bold}Confirmed workspaces{S.reset}  {S.dim}({trust_file()}){S.reset}\n")
+        for p in paths:
+            mark = "" if p.is_dir() else f"  {S.yellow}(missing){S.reset}"
+            print(f"  {S.green}✓{S.reset}  {p}{mark}")
+        print()
+        return
+
+    if remove is not None:
+        target = Path(remove).expanduser().resolve()
+        if remove_trusted(target):
+            _success(f"Withdrew trust for {target}.")
+        else:
+            _error(f"{target} is not a confirmed workspace "
+                   f"(see `pixlang trust --list`).")
+        return
+
+    target = Path(directory).expanduser().resolve()
+    if not target.is_dir():
+        _error(f"Not a directory: {target}")
+    warning = overbroad_warning(target)
+    if warning:
+        _error(f"Refusing to confirm {target}: {warning}.")
+    if add_trusted(target):
+        _success(f"Confirmed {target} — its pixlang.toml may now trust local plugins.")
+    else:
+        print(f"  {S.dim}{target} is already covered by a confirmed workspace.{S.reset}\n")
+
+
 # ── new ───────────────────────────────────────────────────────────────────────
 
 def _cmd_new(name: str):
@@ -461,7 +529,8 @@ SAVE "output/result.png"
     plugin_content = f"""\
 # {slug}/pipeline.plugins.py
 # Local plugin — loaded alongside pipeline.pxl because pixlang.toml sets
-# [plugins] trust_local = true (or run with --trust-plugins).
+# [plugins] trust_local = true and `pixlang new` confirmed this directory as a
+# trusted workspace. Elsewhere: `pixlang trust <dir>`, or --trust-plugins once.
 # Add custom commands for this project here.
 
 def register(registry):
@@ -477,7 +546,9 @@ def register(registry):
 verbose = false
 
 [plugins]
-# This project's own pipeline.plugins.py is trusted code.
+# This project's own pipeline.plugins.py is trusted code. `pixlang new` also
+# recorded this directory in ~/.pixlang/trusted.toml; without that entry the
+# setting below has no effect (see `pixlang trust --help`).
 trust_local = true
 
 [variables]
@@ -509,13 +580,20 @@ pixlang watch pipeline.pxl
 ## Custom commands
 
 Edit `pipeline.plugins.py`. It is loaded because `pixlang.toml` sets
-`[plugins] trust_local = true`.
+`[plugins] trust_local = true` and this directory was confirmed as a trusted
+workspace when the project was created (`pixlang trust --list`). If you move
+or re-clone the project, confirm it again with `pixlang trust .`.
 """
 
     (root / "pipeline.pxl").write_text(pipeline_content)
     (root / "pipeline.plugins.py").write_text(plugin_content)
     (root / "pixlang.toml").write_text(toml_content)
     (root / "README.md").write_text(readme_content)
+
+    # Scaffolding a project here is the confirmation that its own plugin file
+    # is trusted code; without it the printed `pixlang run` would not load it.
+    from pixlang.plugins import add_trusted
+    add_trusted(root.resolve())
 
     print(f"  {S.green}✓{S.reset}  Project '{name}' created at {S.cyan}./{slug}/{S.reset}\n")
     print(f"  {S.dim}Structure:{S.reset}")

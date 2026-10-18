@@ -50,7 +50,7 @@ SAVE "output/result.png"
 | **Validation** | `ASSERT` runtime checks (width, height, channels, min, max, contour_count) |
 | **ROI** | `ROI x y w h … ROI_RESET` — process masked regions, auto-paste back |
 | **Batch** | `LOAD_GLOB` + `SAVE_EACH` — multi-file runs with template filenames |
-| **Plugins** | Entry-points (auto), local `.plugins.py` / directory (opt-in via `--trust-plugins`) |
+| **Plugins** | Entry-points (auto), local `.plugins.py` / directory (opt-in: `--trust-plugins` or a confirmed workspace) |
 | **Linter** | 12 rules, `pixlang lint`, integrated into watch mode |
 | **Watch** | `pixlang watch` — file-change polling with auto-rerun |
 | **Config** | `pixlang.toml` — project-level variables, defaults, lint overrides |
@@ -83,6 +83,7 @@ pixlang watch    pipeline.pxl [--verbose] [--interval 0.5]
 pixlang validate pipeline.pxl
 pixlang commands [--source builtin] [--category Bitwise]
 pixlang plugins
+pixlang trust    [DIR] [--list] [--remove DIR]
 pixlang new      <project-name>
 pixlang editor   [--port 7478] [--workspace DIR] [--timeout 30] [--no-plugins]
 pixlang --version
@@ -271,8 +272,20 @@ Three discovery mechanisms, tried in order:
 3. **Directory** — `~/.pixlang/plugins/` or `$PIXLANG_PLUGIN_DIR`
 
 > **Security:** local and directory plugins run arbitrary Python, so they load only with
-> `pixlang run x.pxl --trust-plugins` or `[plugins] trust_local = true` in `pixlang.toml`.
-> Pip-installed entry-point plugins load automatically.
+> `pixlang run x.pxl --trust-plugins`, or with `[plugins] trust_local = true` in
+> `pixlang.toml` **in a directory you confirmed once** with `pixlang trust <dir>`.
+> Both steps are needed: a downloaded bundle can ship its own `pixlang.toml`, so the
+> setting alone would be the sender's to make. Pip-installed entry-point plugins load
+> automatically — installing a package is already an act of trust.
+>
+> ```bash
+> pixlang trust .              # confirm this project (covers subdirectories)
+> pixlang trust --list         # show confirmed workspaces
+> pixlang trust --remove DIR   # withdraw
+> ```
+>
+> Confirmations live in `~/.pixlang/trusted.toml` (`$PIXLANG_TRUST_FILE` overrides).
+> `pixlang new` confirms the project it scaffolds, since you created it yourself.
 
 **Writing a plugin:**
 ```python
@@ -289,7 +302,8 @@ def register(registry):
         return result
 ```
 
-Drop it in `~/.pixlang/plugins/` and run with `--trust-plugins`.
+Drop it in `~/.pixlang/plugins/` and run with `--trust-plugins`, or run it from a project
+whose confirmed `pixlang.toml` sets `trust_local = true`.
 
 ---
 

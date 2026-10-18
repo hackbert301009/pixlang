@@ -17,14 +17,17 @@ Three discovery mechanisms:
 
    Local and directory plugins are arbitrary Python code that would run just
    by *running a pipeline* (e.g. one you downloaded). They are therefore
-   **opt-in**: pass ``--trust-plugins`` on the command line or set
+   **opt-in**: pass ``--trust-plugins`` on the command line, or set
 
        [plugins]
        trust_local = true
 
-   in pixlang.toml. When such a file exists but is not trusted, one hint
-   line is printed to stderr. (Calling ``load_directory(path)`` with an
-   explicit path is an explicit request and always loads.)
+   in pixlang.toml **and** confirm that directory once with ``pixlang trust``.
+   The second step matters: a downloaded bundle can ship its own pixlang.toml,
+   so the flag alone would be the attacker's to set (see ``trust.py``). When
+   such a file exists but is not trusted, one hint line is printed to stderr.
+   (Calling ``load_directory(path)`` with an explicit path is an explicit
+   request and always loads.)
 
 Loading is idempotent: loading the same file again is a no-op unless the
 file changed on disk, in which case its commands are unregistered and the
@@ -51,8 +54,8 @@ if TYPE_CHECKING:
 ENTRY_POINT_GROUP  = "pixlang.commands"
 PLUGIN_DIR_ENV     = "PIXLANG_PLUGIN_DIR"
 DEFAULT_PLUGIN_DIR = Path.home() / ".pixlang" / "plugins"
-TRUST_HINT = ("re-run with --trust-plugins or set `[plugins] trust_local = true` "
-              "in pixlang.toml to load it")
+TRUST_HINT = ("re-run with --trust-plugins, or set `[plugins] trust_local = true` in "
+              "pixlang.toml and confirm the directory once with `pixlang trust`")
 
 
 # ── Plugin manifest ────────────────────────────────────────────────────────────
@@ -83,13 +86,18 @@ class PluginLoader:
         loader.load_local(pipeline_path)   # only if trusted
         loader.load_directory()            # only if trusted
         print(loader.manifests)
+
+    *trust_hint* replaces the generic instruction in the skip message when the
+    caller knows a more specific one -- e.g. that a pixlang.toml did ask for
+    trust and only the confirmation is missing.
     """
 
     def __init__(self, registry: CommandRegistry, trust_local: bool = False,
-                 stream: Optional[TextIO] = None):
+                 stream: Optional[TextIO] = None, trust_hint: Optional[str] = None):
         self.registry = registry
         self.trust_local = bool(trust_local)
         self.stream = stream
+        self.trust_hint = trust_hint or TRUST_HINT
         self.manifests: List[PluginManifest] = []
         self.skipped: List[Path] = []               # untrusted files that were not loaded
         self._loaded: Dict[str, Tuple[Optional[float], PluginManifest]] = {}
@@ -236,7 +244,7 @@ class PluginLoader:
             return
         self._hinted.add(key)
         print(f"pixlang: hint: {what} '{path}' was not loaded (untrusted code); "
-              f"{TRUST_HINT}.", file=self._out())
+              f"{self.trust_hint}.", file=self._out())
 
     @property
     def skipped_keys(self) -> set:
@@ -261,22 +269,37 @@ def local_plugin_path(pipeline_path: Path) -> Path:
     return pipeline_path.parent / f"{pipeline_path.stem}.plugins.py"
 
 
-def trust_from_config(start: Optional[Path] = None) -> bool:
-    """Read ``[plugins] trust_local`` from the nearest pixlang.toml (default False)."""
+def config_trust_request(start: Optional[Path] = None) -> Optional[Path]:
+    """
+    The nearest pixlang.toml that sets ``[plugins] trust_local``, or None.
+
+    Finding one says only that the *project* asks for local-plugin trust. It
+    does not grant it -- the project file may have come with the pipeline.
+    """
     from pixlang.config.loader import _find_config
     start = Path(start) if start is not None else Path.cwd()
     try:
         cfg_file = _find_config(start.resolve())
     except Exception:
-        return False
+        return None
     if cfg_file is None:
-        return False
+        return None
     data = _read_toml(cfg_file)
     section = data.get("plugins", {}) if isinstance(data, dict) else {}
     value = section.get("trust_local", False) if isinstance(section, dict) else False
     if isinstance(value, str):
-        return value.strip().lower() in ("true", "yes", "1", "on")
-    return bool(value)
+        value = value.strip().lower() in ("true", "yes", "1", "on")
+    return cfg_file if bool(value) else None
+
+
+def trust_from_config(start: Optional[Path] = None) -> bool:
+    """
+    True if a pixlang.toml asks for local-plugin trust **and** its directory
+    has been confirmed with ``pixlang trust`` (see ``pixlang.plugins.trust``).
+    """
+    from pixlang.plugins.trust import is_trusted
+    cfg_file = config_trust_request(start)
+    return cfg_file is not None and is_trusted(cfg_file.parent)
 
 
 def _read_toml(path: Path) -> dict:
