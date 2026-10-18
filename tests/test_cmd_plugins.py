@@ -8,7 +8,7 @@ import pytest
 
 from pixlang.commands.builtin import register_all
 from pixlang.commands.registry import CommandRegistry
-from pixlang.plugins import PluginLoader, trust_from_config
+from pixlang.plugins import PluginLoader, add_trusted, config_trust_request, trust_from_config
 
 
 @pytest.fixture
@@ -139,11 +139,20 @@ def test_manifest_counts_overrides_via_origin(tmp_path, reg):
     assert m.commands == ["BLUR"]
 
 
-def test_trust_from_config(tmp_path):
+def test_trust_from_config_needs_a_confirmed_workspace(tmp_path):
+    assert config_trust_request(tmp_path) is None
     assert trust_from_config(tmp_path) is False
-    (tmp_path / "pixlang.toml").write_text("[plugins]\ntrust_local = true\n")
+
+    cfg = tmp_path / "pixlang.toml"
+    cfg.write_text("[plugins]\ntrust_local = true\n")
     sub = tmp_path / "sub"
     sub.mkdir()
+    # The toml asks for trust, but asking is not granting: it may have arrived
+    # with the pipeline.
+    assert config_trust_request(sub) == cfg
+    assert trust_from_config(sub) is False
+
+    add_trusted(tmp_path)
     assert trust_from_config(sub) is True
 
 

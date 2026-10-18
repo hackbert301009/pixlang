@@ -406,10 +406,21 @@ variable; a crashing rule is reported as PX000 instead of being hidden.
 [lint]       ignore = ["PX006"]
 [link]       search_paths = ["lib"] # relative to the toml file
 [run]        max_loop_iterations = 1000000
+[plugins]    trust_local = true     # see below — needs a confirmed workspace
 ```
 
 Uses `tomllib` (3.11+), `tomli` when installed, else a built-in reader that
 handles tables, strings, numbers, booleans, arrays and trailing comments.
+
+**`[plugins] trust_local`** asks that `<stem>.plugins.py` next to the pipeline,
+and `~/.pixlang/plugins/*.py`, be loaded. Those files are arbitrary Python, and
+a `pixlang.toml` can arrive inside a downloaded bundle, so the setting alone
+does not grant trust: the directory holding the toml must also have been
+confirmed once with `pixlang trust <dir>`. Confirming a directory covers
+everything below it. The list lives in `~/.pixlang/trusted.toml`, overridable
+with `$PIXLANG_TRUST_FILE`; `pixlang trust --list` shows it and
+`pixlang trust --remove <dir>` withdraws an entry. `--trust-plugins` bypasses
+both for a single run, and `pixlang new` confirms the project it scaffolds.
 
 ## 13. Grammar
 
