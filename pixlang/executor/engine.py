@@ -36,6 +36,7 @@ from pixlang.commands.builtin import _unwrap, _wrap
 from pixlang.commands.confine import PathConfinementError, PathGuard
 from pixlang.commands.limits import DEFAULT_LIMITS, ArrayLimits, check_array, enforce
 from pixlang.commands.registry import CommandRegistry
+from pixlang.executor.interpolation import interpolate
 from pixlang.parser.ast_nodes import (
     AllocStmt,
     AssertStmt,
@@ -46,6 +47,7 @@ from pixlang.parser.ast_nodes import (
     BreakStmt,
     BufStmt,
     Call,
+    Chain,
     Command,
     ContinueStmt,
     Expr,
@@ -86,6 +88,14 @@ if TYPE_CHECKING:
 # Legacy ASSERT subjects measured on the current image
 IMAGE_SUBJECTS = ("width", "height", "channels", "depth", "min", "max",
                   "contour_count", "ndim")
+
+# Properties of the current image that are not plain array attributes; reachable
+# as `_.min`, `_.contour_count` ... in any expression
+IMAGE_ONLY_SUBJECTS = ("min", "max", "contour_count")
+
+# Significant digits shown for floats in diagnostics; hides binary noise
+# such as 338.99999999999994
+DISPLAY_DIGITS = 6
 
 # Kept for backwards compatibility (v0.3 imported these from here)
 _OPS = {op: (lambda o: (lambda a, b: memory.compare(o, a, b)))(op)
@@ -766,7 +776,8 @@ class Executor:
             print(f"  {tick}  ASSERT {desc}{got}  {'OK' if passed else 'FAIL'}")
 
         if not passed:
-            custom = f" — {stmt.message}" if stmt.message else ""
+            message = interpolate(stmt.message, self._lookup, _short)
+            custom = f" — {message}" if message else ""
             got = f", but got {_short(actual)}" if actual is not None else ""
             raise PixAssertionError(
                 f"[ASSERT] Pipeline assertion failed (line {stmt.line}): "
@@ -1075,6 +1086,20 @@ class Executor:
         except (TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
             raise self._error(f"{exc} (in '{expr_source(node)}')", node)
 
+    def _ev_chain(self, node: Chain) -> Any:
+        left = self._plain(self._eval(node.operands[0]), allow_ref=True)
+        result = True
+        for op, operand in zip(node.ops, node.operands[1:]):
+            right = self._plain(self._eval(operand), allow_ref=True)
+            try:
+                result = memory.binop(op, left, right)
+            except (TypeError, ValueError) as exc:
+                raise self._error(f"{exc} (in '{expr_source(node)}')", node)
+            if not self._truth(result, node):
+                break
+            left = right
+        return result
+
     def _ev_index(self, node: Index) -> Any:
         target = self._eval(node.target)
         if isinstance(target, Ref):
@@ -1098,6 +1123,9 @@ class Executor:
                           f"({memory.type_name(target)})", node)
 
     def _ev_attr(self, node: Attr) -> Any:
+        if node.name in IMAGE_ONLY_SUBJECTS and isinstance(node.target, BareIdent) \
+                and node.target.name == "_" and not self._lookup("_")[0]:
+            return self._image_subject(node.name, node)
         target = self._eval(node.target)
         if isinstance(target, Ref):
             view = self._deref(target, node)
@@ -1196,7 +1224,7 @@ class Executor:
 
     _EVAL = {
         Literal: _ev_literal, VarRef: _ev_varref, BareIdent: _ev_bare,
-        Unary: _ev_unary, Binary: _ev_binary, Index: _ev_index, Attr: _ev_attr,
+        Unary: _ev_unary, Binary: _ev_binary, Chain: _ev_chain, Index: _ev_index, Attr: _ev_attr,
         Call: _ev_call, AsType: _ev_astype, Slice: _ev_slice,
     }
 
@@ -1218,6 +1246,8 @@ def _short(v: Any) -> str:
         return _short(v["_image"])
     if isinstance(v, bool):
         return "true" if v else "false"
+    if isinstance(v, (float, np.floating)):
+        return f"{v:.{DISPLAY_DIGITS}g}"
     return str(v)
 
 

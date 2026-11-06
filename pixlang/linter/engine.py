@@ -20,6 +20,8 @@ Built-in rules:
   PX011  ERROR   — command name is not a FUNC and not in the registry
   PX012  WARNING — bare word silently becomes a string but looks like a
                    typo of a defined variable
+  PX013  WARNING — SET value is a bare image property (width, contour_count,
+                   ...) or command name; it is stored as a string
   LNKxxx         — linker diagnostics (when the pipeline path is known)
 
 Blocks (IF/ELIF/ELSE, REPEAT, WHILE, FOR, ROI, WITH) and INCLUDEd files are
@@ -541,4 +543,36 @@ def rule_px012_bare_word_typo(ctx, flat, registry):
                         "PX012", Severity.WARNING,
                         f"'{node.name}' is not a variable and will be used as the string "
                         f"\"{node.name}\" — did you mean ${close[0]}?", node))
+    return diags
+
+
+IMAGE_SUBJECT_WORDS = ("width", "height", "channels", "depth", "min", "max",
+                       "contour_count", "ndim")
+
+
+@_rule
+def rule_px013_bare_word_in_set(ctx, flat, registry):
+    """PX013 — `SET n contour_count` stores the string, not the property."""
+    defined = _defs_in(ctx.main_body)
+    for fn in ctx.funcs.values():
+        defined |= set(fn.params) | _defs_in(fn.body)
+    defined |= ctx.config_vars
+    defined |= {s.name for s in walk_statements(ctx.main) if isinstance(s, (BufStmt, AllocStmt))}
+    diags = []
+    for stmt in walk_statements(ctx.main):
+        if not isinstance(stmt, SetVar):
+            continue
+        for node in walk_expr(stmt.value):
+            if not isinstance(node, BareIdent) or node.strict or node.name in defined:
+                continue
+            if node.name in IMAGE_SUBJECT_WORDS:
+                diags.append(_diag(
+                    "PX013", Severity.WARNING,
+                    f"'{node.name}' in SET is the string \"{node.name}\", not the image "
+                    f"property — use _.{node.name} to read it.", node))
+            elif registry is not None and node.name in registry:
+                diags.append(_diag(
+                    "PX013", Severity.WARNING,
+                    f"'{node.name}' is a command name; in SET it is the string "
+                    f"\"{node.name}\" — quote it if that is intended.", node))
     return diags
