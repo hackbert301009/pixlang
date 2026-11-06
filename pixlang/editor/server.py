@@ -35,13 +35,13 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
-from flask import Flask, Response, abort, jsonify, request
+from flask import Flask, Response, abort, jsonify, make_response, request
 
 from pixlang.commands import registry as pxl_registry
 from pixlang.commands.builtin import _unwrap
 from pixlang.commands.confine import PathConfinementError, PathGuard
 from pixlang.commands.limits import ArrayLimits
-from pixlang.commands.registry import CommandRegistry
+from pixlang.commands.registry import CommandInfo, CommandRegistry
 from pixlang.executor.engine import Executor
 from pixlang.linter import Linter
 from pixlang.parser import parse as pxl_parse
@@ -729,47 +729,17 @@ def _clone_registry(src: CommandRegistry) -> CommandRegistry:
 # Command metadata
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _param_list(info: Any) -> list[dict]:
-    params = getattr(info, "params", None)
-    if isinstance(params, list) and params:
-        out = []
-        for p in params:
-            if isinstance(p, dict):
-                out.append({"name": str(p.get("name", "")), "type": str(p.get("type", "") or ""),
-                            "default": None if p.get("default") is None else fmt_default(p.get("default")),
-                            "optional": bool(p.get("optional", p.get("default") is not None)),
-                            "doc": str(p.get("doc", "") or "")})
-            elif isinstance(p, (tuple, list)) and len(p) >= 2:
-                pname, ptype, pdef = (list(p) + [None])[:3]
-                out.append({"name": str(pname), "type": str(ptype or ""),
-                            "default": None if pdef is None else fmt_default(pdef),
-                            "optional": pdef is not None, "doc": ""})
-            else:
-                name = getattr(p, "name", str(p))
-                default = getattr(p, "default", None)
-                ptype = getattr(p, "type", "") or getattr(p, "annotation", "")
-                out.append({"name": str(name),
-                            "type": getattr(ptype, "__name__", str(ptype or "")),
-                            "default": None if default in (None, inspect.Parameter.empty) else fmt_default(default),
-                            "optional": default not in (None, inspect.Parameter.empty),
-                            "doc": str(getattr(p, "doc", "") or "")})
-        return out
+def _param_list(info: CommandInfo) -> list[dict]:
     out = []
-    try:
-        sig = inspect.signature(info.fn)
-    except (TypeError, ValueError):
-        return out
-    for name, p in sig.parameters.items():
-        if name in ("image", "_ctx", "img") or p.kind in (p.VAR_KEYWORD,):
-            continue
-        ann = p.annotation
-        tname = ann.__name__ if (ann is not inspect.Parameter.empty and hasattr(ann, "__name__")) \
-            else ("" if ann is inspect.Parameter.empty else str(ann))
+    for p, (_name, type_name, _default) in zip(info.arguments, info.params):
+        variadic = p.kind is p.VAR_POSITIONAL
         has_default = p.default is not inspect.Parameter.empty
-        out.append({"name": name + ("…" if p.kind == p.VAR_POSITIONAL else ""),
-                    "type": tname,
-                    "default": fmt_default(p.default) if has_default else None,
-                    "optional": has_default or p.kind == p.VAR_POSITIONAL, "doc": ""})
+        out.append({"name": p.name + ("…" if variadic else ""),
+                    "type": type_name,
+                    "default": fmt_default(p.default) if has_default and p.default is not None
+                    else None,
+                    "optional": has_default or variadic,
+                    "doc": ""})
     return out
 
 
@@ -1046,7 +1016,8 @@ def create_app(workspace: str | os.PathLike | None = None, *,
             return _err("Cross-site request rejected", 403)
         path = request.path
         if path.startswith("/api/") and not path.startswith("/api/result/"):
-            if not secrets.compare_digest(request.headers.get(TOKEN_HEADER, ""), api_token):
+            sent = request.headers.get(TOKEN_HEADER, "").encode("utf-8")
+            if not secrets.compare_digest(sent, api_token.encode("utf-8")):
                 return _err("Missing or invalid editor token", 403)
             if request.method == "POST" and request.mimetype != "application/json":
                 return _err("Content-Type must be application/json", 415)
@@ -1069,8 +1040,16 @@ def create_app(workspace: str | os.PathLike | None = None, *,
         return jsonify({"error": msg}), status
 
     def _body() -> dict:
-        data = request.get_json(silent=True)
-        return data if isinstance(data, dict) else {}
+        raw = request.get_data()                 # raises 413 for an oversized or chunked body
+        if not raw.strip():
+            return {}
+        try:
+            data = json.loads(raw)
+        except (ValueError, RecursionError):
+            abort(make_response(*_err("Request body is not valid JSON", 400)))
+        if not isinstance(data, dict):
+            abort(make_response(*_err("Request body must be a JSON object", 400)))
+        return data
 
     def _code(data: dict) -> str:
         code = data.get("code", "")
@@ -1107,6 +1086,10 @@ def create_app(workspace: str | os.PathLike | None = None, *,
 
     def _rel(p: Path) -> str:
         return p.resolve().relative_to(root).as_posix()
+
+    def _listed(p: Path) -> bool:
+        """A symlink that leads out of the workspace (or nowhere) is not a workspace file."""
+        return p.is_file() and _is_within(p, root)
 
     def _locate(data: dict) -> tuple[Path | None, PathGuard]:
         """Where does a request's pipeline "live", and what may it touch?"""
@@ -1397,7 +1380,9 @@ def create_app(workspace: str | os.PathLike | None = None, *,
                         st = p.stat()
                     except OSError:
                         continue
-                    files.append({"path": _rel(p), "name": fn, "size": st.st_size,
+                    if not _listed(p):
+                        continue
+                    files.append({"path": p.relative_to(root).as_posix(), "name": fn, "size": st.st_size,
                                   "mtime": st.st_mtime})
                     if len(files) >= MAX_LISTED_FILES:
                         break
@@ -1485,6 +1470,10 @@ def create_app(workspace: str | os.PathLike | None = None, *,
             return jsonify({"workspace": json.loads(WS.read_text(encoding="utf-8"))})
         except (json.JSONDecodeError, OSError):
             return jsonify({"workspace": None})
+
+    @app.errorhandler(RecursionError)
+    def _too_deep(_e: Any) -> Any:
+        return _err("The pipeline is nested too deeply to be analysed", 400)
 
     @app.errorhandler(413)
     def _too_large(_e: Any) -> Any:

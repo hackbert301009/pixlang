@@ -64,6 +64,11 @@ class CommandInfo:
         ]
 
     @property
+    def arguments(self) -> List[inspect.Parameter]:
+        """The parameters a pipeline can pass, in order (no image / _ctx)."""
+        return self._arg_params
+
+    @property
     def params(self) -> List[Tuple[str, str, Any]]:
         """``[(name, type_name, default_or_None), ...]`` excluding image/_ctx."""
         out = []
