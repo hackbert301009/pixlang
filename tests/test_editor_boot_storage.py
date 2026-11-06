@@ -5,6 +5,7 @@ Needs Playwright and a Chromium build; skipped when either is missing.
 from __future__ import annotations
 
 import json
+import os
 import threading
 
 import pytest
@@ -26,7 +27,7 @@ GARBAGE = ["5", "-5", "{}", "[]", "null", '"text"', "true", '{"a":{"b":[1]}}',
 def browser():
     with sync_api.sync_playwright() as pw:
         try:
-            b = pw.chromium.launch()
+            b = pw.chromium.launch(executable_path=os.environ.get("PIXLANG_TEST_CHROMIUM"))
         except sync_api.Error as exc:
             pytest.skip(f"Chromium is not available: {str(exc).splitlines()[0]}")
         yield b
