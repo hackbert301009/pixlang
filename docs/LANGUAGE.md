@@ -89,7 +89,7 @@ BLUR -1                      # bare literal; no expression parsing
 | 2     | `or`                                       | left  |
 | 3     | `and`                                      | left  |
 | 4     | `not`                                      | prefix|
-| 5     | `==  !=  <  >  <=  >=`                     | left  |
+| 5     | `==  !=  <  >  <=  >=`                     | chained (see below) |
 | 6     | `\|`                                       | left  |
 | 7     | `^`                                        | left  |
 | 8     | `&`                                        | left  |
@@ -102,7 +102,23 @@ BLUR -1                      # bare literal; no expression parsing
 `and` / `or` short-circuit and return the deciding operand. `/` is true
 division, `//` floor division. `+` concatenates when either side is a string.
 Comparisons between a numeric string and a number coerce (`"120" > 100` is
-true, kept from v0.3); other mismatches raise an error.
+true, kept from v0.3); other mismatches raise an error. A bool and a number
+can be compared with `==` / `!=` only; `true < 10` is an error so an
+accidental `(a < b) < c` can never pass silently.
+
+### Chained comparisons
+
+Comparisons at level 5 chain like Python: `a < b <= c != d` means
+`a < b and b <= c and c != d`, with every operand evaluated at most once and
+evaluation stopping at the first false link. Any mix of the six operators is
+allowed, in `SET`, `IF` / `ELIF` / `WHILE` / `ASSERT` and inside parenthesised
+command arguments. A parenthesised comparison is a value, not part of the
+chain: `(a < b) < c` compares a bool with `c` and is an error.
+
+```
+ASSERT 0 < $n < 10 "n out of range"
+IF 0 <= $x < $width
+```
 
 ### Bare identifiers (legacy)
 
@@ -434,6 +450,7 @@ arg        := INT | FLOAT | STRING | VAR | word | true | false | '(' expr ')'
 target     := word ['[' index (',' index)* ']'] | '*' unary
 index      := expr | [expr] ':' [expr] [':' [expr]]
 expr       := Pratt expression; precedence table in section 3
+comparison := operand (('==' | '!=' | '<' | '>' | '<=' | '>=') operand)+   # chained
 ```
 
 ## 14. Compatibility with v0.4

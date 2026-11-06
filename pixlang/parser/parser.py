@@ -30,7 +30,7 @@ Grammar (simplified EBNF; NL = end of line):
     free        := FREE word (',' word)*
 
 Expression precedence (low → high):
-    AS (reinterpret) < or < and < not < == != < > <= >= < | < ^ < &
+    AS (reinterpret) < or < and < not < == != < > <= >= (chainable) < | < ^ < &
     < << >> < + - < * / // % < unary - ~ & * < postfix [..] .attr (..)
 
 Command arguments are atoms; wrap an expression in parentheses to use it as
@@ -51,6 +51,7 @@ from .ast_nodes import (
     BreakStmt,
     BufStmt,
     Call,
+    Chain,
     Command,
     ContinueStmt,
     ElifClause,
@@ -404,6 +405,8 @@ class _Parser:
         if isinstance(cond, Binary) and cond.op in COMPARISON_OPS \
                 and isinstance(cond.left, BareIdent):
             cond.left.strict = strict
+        elif isinstance(cond, Chain) and isinstance(cond.operands[0], BareIdent):
+            cond.operands[0].strict = strict
         elif isinstance(cond, BareIdent):
             cond.strict = strict
         return cond
@@ -645,6 +648,7 @@ class _Parser:
 
     def _expr(self, min_bp: int = 0, allow_as: bool = True) -> Any:
         left = self._parse_unary()
+        last_comparison = None        # identity check keeps "(a < b) < c" unchained
         while True:
             tok = self._peek()
             if tok is None:
@@ -673,7 +677,19 @@ class _Parser:
                     break
                 self._advance()
                 right = self._expr(bp, allow_as=False)
+                if op in COMPARISON_OPS and last_comparison is not None \
+                        and left is last_comparison:
+                    if isinstance(left, Chain):
+                        left.operands.append(right)
+                        left.ops.append(op)
+                    else:
+                        left = Chain(operands=[left.left, left.right, right],
+                                     ops=[left.op, op], line=left.line,
+                                     col=left.col, file=left.file)
+                    last_comparison = left
+                    continue
                 left = Binary(op=op, left=left, right=right, **self._loc(tok))
+                last_comparison = left if op in COMPARISON_OPS else None
                 continue
             break
         return left
@@ -788,7 +804,7 @@ class _Parser:
 def _text(expr: Any) -> str:
     from .ast_nodes import expr_source
     text = expr_source(expr)
-    if isinstance(expr, Binary) and text.startswith("(") and text.endswith(")"):
+    if isinstance(expr, (Binary, Chain)) and text.startswith("(") and text.endswith(")"):
         text = text[1:-1]
     return text
 

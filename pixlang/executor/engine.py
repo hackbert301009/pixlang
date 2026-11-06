@@ -44,6 +44,7 @@ from pixlang.parser.ast_nodes import (
     BreakStmt,
     BufStmt,
     Call,
+    Chain,
     Command,
     ContinueStmt,
     Expr,
@@ -1043,6 +1044,20 @@ class Executor:
         except (TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
             raise self._error(f"{exc} (in '{expr_source(node)}')", node)
 
+    def _ev_chain(self, node: Chain) -> Any:
+        left = self._plain(self._eval(node.operands[0]), allow_ref=True)
+        result = True
+        for op, operand in zip(node.ops, node.operands[1:]):
+            right = self._plain(self._eval(operand), allow_ref=True)
+            try:
+                result = memory.binop(op, left, right)
+            except (TypeError, ValueError) as exc:
+                raise self._error(f"{exc} (in '{expr_source(node)}')", node)
+            if not self._truth(result, node):
+                break
+            left = right
+        return result
+
     def _ev_index(self, node: Index) -> Any:
         target = self._eval(node.target)
         if isinstance(target, Ref):
@@ -1164,7 +1179,7 @@ class Executor:
 
     _EVAL = {
         Literal: _ev_literal, VarRef: _ev_varref, BareIdent: _ev_bare,
-        Unary: _ev_unary, Binary: _ev_binary, Index: _ev_index, Attr: _ev_attr,
+        Unary: _ev_unary, Binary: _ev_binary, Chain: _ev_chain, Index: _ev_index, Attr: _ev_attr,
         Call: _ev_call, AsType: _ev_astype, Slice: _ev_slice,
     }
 
