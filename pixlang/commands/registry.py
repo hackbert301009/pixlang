@@ -27,6 +27,8 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
+from .confine import PATH_MODES, PATH_PARAM_NAMES
+
 _SKIP_PARAMS = ("image", "_ctx")
 _TYPE_NAMES = {int: "int", float: "float", str: "str", bool: "bool"}
 _TRUE = {"true", "yes", "on", "1"}
@@ -43,6 +45,7 @@ class CommandInfo:
     signature: Optional[inspect.Signature] = field(default=None, repr=False)
     category: str = ""
     origin: str = ""   # loader-level source used by unregister_source()
+    paths: Dict[str, str] = field(default_factory=dict)   # parameter -> read|write|glob|template
     shadowed: Optional[CommandInfo] = field(default=None, repr=False)
 
     def __repr__(self):
@@ -72,6 +75,22 @@ class CommandInfo:
             default = None if p.default is inspect.Parameter.empty else p.default
             out.append((p.name, tname, default))
         return out
+
+    def path_slots(self) -> List[Tuple[int, str, Any]]:
+        """``(argument index, mode, default)`` for each declared path parameter."""
+        slots = []
+        for i, p in enumerate(self._arg_params):
+            mode = self.paths.get(p.name)
+            if mode is not None:
+                default = None if p.default is inspect.Parameter.empty else p.default
+                slots.append((i, mode, default))
+        return slots
+
+    @property
+    def undeclared_paths(self) -> List[str]:
+        """Parameters named like a path that ``paths=`` does not cover."""
+        return [p.name for p in self._arg_params
+                if p.name in PATH_PARAM_NAMES and p.name not in self.paths]
 
     @property
     def usage(self) -> str:
@@ -123,8 +142,13 @@ class CommandRegistry:
     # ── Registration ─────────────────────────────────────────────────────────
 
     def register(self, name: str, *, source: str = "builtin", allow_override: bool = False,
-                 category: Optional[str] = None):
-        """Decorator factory — @registry.register('CMD', source='my_plugin')"""
+                 category: Optional[str] = None, paths: Optional[Dict[str, str]] = None):
+        """Decorator factory — @registry.register('CMD', source='my_plugin')
+
+        ``paths`` maps parameter names to how the command uses them
+        (``read``, ``write``, ``glob`` or ``template``). Embedders that
+        restrict file access rely on it.
+        """
         def decorator(fn: Callable) -> Callable:
             key = name.upper()
             existing = self._commands.get(key)
@@ -139,12 +163,13 @@ class CommandRegistry:
             except (TypeError, ValueError):
                 sig = None
             accepts_ctx = sig is not None and "_ctx" in sig.parameters
+            declared = _check_paths(key, sig, paths or {})
             origin = self._origin_stack[-1] if self._origin_stack else source
             cat = category or ("Plugin" if source != self.BUILTIN_SOURCE else "")
             self._commands[key] = CommandInfo(
                 name=key, fn=fn, source=source, doc=doc,
                 accepts_ctx=accepts_ctx, signature=sig,
-                category=cat, origin=origin, shadowed=existing,
+                category=cat, origin=origin, shadowed=existing, paths=declared,
             )
             return fn
         return decorator
@@ -302,6 +327,21 @@ def _type_name(ann: Any) -> str:
     if isinstance(ann, str):          # postponed annotations in plugin files
         return ann.strip().strip("'\"")
     return getattr(ann, "__name__", str(ann))
+
+
+def _check_paths(name: str, sig: Optional[inspect.Signature],
+                 paths: Dict[str, str]) -> Dict[str, str]:
+    for pname, mode in paths.items():
+        if mode not in PATH_MODES:
+            raise ValueError(f"[PixLang Registry] {name}: path mode for '{pname}' must be one of "
+                             f"{', '.join(PATH_MODES)}, got {mode!r}")
+        param = sig.parameters.get(pname) if sig is not None else None
+        if param is None:
+            raise ValueError(f"[PixLang Registry] {name} has no parameter '{pname}' to mark as a path")
+        if param.kind is param.VAR_POSITIONAL:
+            raise ValueError(f"[PixLang Registry] {name}: variadic parameter '{pname}' "
+                             "cannot be a path")
+    return dict(paths)
 
 
 def _doc_syntax(doc: str, name: str) -> str:

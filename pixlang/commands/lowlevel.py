@@ -426,7 +426,7 @@ def register_v05(r):
             return _cast(np.floor(np.clip(c / top, 0, 1) * (n - 1e-9)) * top / n, c.dtype)
         return _apply_lut_color(img, apply)
 
-    @_command(r, "LUT")
+    @_command(r, "LUT", paths={"path": "read"})
     def cmd_lut(image, path: str):
         """LUT "table.npy"  — map pixel values through a NumPy lookup table.
 
@@ -541,7 +541,7 @@ def register_v05(r):
 
     # ── Raw / embedded ────────────────────────────────────────────────────────
 
-    @_command(r, "SAVE_RAW")
+    @_command(r, "SAVE_RAW", paths={"path": "write"})
     def cmd_save_raw(image, path: str, fmt: str = "rgb888", endian: str = "le"):
         """SAVE_RAW "file.bin" [gray8|rgb565|rgb888|bgr888|rgba8888] [le|be]  — headerless dump.
 
@@ -578,9 +578,9 @@ def register_v05(r):
                 f"[LOAD_RAW] {path!r} has {len(data)} bytes, but {w}x{h} {f} needs {need}"
             )
         return _decode_raw(data, w, h, f, _endian("LOAD_RAW", endian))
-    _command(r, "LOAD_RAW", fresh=True)(_load_raw)
+    _command(r, "LOAD_RAW", fresh=True, paths={"path": "read"})(_load_raw)
 
-    @_command(r, "EXPORT_C_ARRAY")
+    @_command(r, "EXPORT_C_ARRAY", paths={"path": "write"})
     def cmd_export_c_array(image, path: str, name: str, fmt: str = None):
         """EXPORT_C_ARRAY "file.h" <name> [fmt]  — write a C header for microcontrollers.
 

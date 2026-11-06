@@ -54,7 +54,8 @@ CATEGORIES = {
 }
 
 
-def _command(r: CommandRegistry, name: str, *, fresh: bool = False):
+def _command(r: CommandRegistry, name: str, *, fresh: bool = False,
+             paths: Optional[dict] = None):
     """Register a built-in, preserving input metadata on bare-array results.
 
     ``fresh=True`` marks loaders whose result must not inherit metadata.
@@ -67,7 +68,7 @@ def _command(r: CommandRegistry, name: str, *, fresh: bool = False):
             @functools.wraps(fn)
             def target(image, *args, **kwargs):
                 return _carry_meta(fn, image, fn(image, *args, **kwargs))
-        r.register(name, category=CATEGORIES.get(name, ""))(target)
+        r.register(name, category=CATEGORIES.get(name, ""), paths=paths)(target)
         return target
     return deco
 
@@ -77,7 +78,7 @@ def register_all(r: CommandRegistry):
 
     # ── I/O ──────────────────────────────────────────────────────────────────
 
-    @_command(r, "LOAD", fresh=True)
+    @_command(r, "LOAD", fresh=True, paths={"path": "read"})
     def cmd_load(image, path: str):
         """LOAD "path/to/image.png"  — loads image from disk (any depth, keeps alpha)."""
         img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
@@ -86,7 +87,7 @@ def register_all(r: CommandRegistry):
             raise FileNotFoundError(f"[LOAD] Could not read image: {path!r}{hint}")
         return img
 
-    @_command(r, "SAVE")
+    @_command(r, "SAVE", paths={"path": "write"})
     def cmd_save(image, path: str):
         """SAVE "output.png"  — writes current image to disk (creates parent dirs).
 
@@ -897,7 +898,7 @@ def register_v03(r):
                       interpolation=interp)
         return _wrap(resized, meta)
 
-    @_command(r, "HISTOGRAM_SAVE")
+    @_command(r, "HISTOGRAM_SAVE", paths={"path": "write"})
     def cmd_histogram_save(image, path: str = "histogram.png"):
         """HISTOGRAM_SAVE ["output.png"]  — save a histogram plot of the current image.
 

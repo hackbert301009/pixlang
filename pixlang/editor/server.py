@@ -19,7 +19,6 @@ the CLI and backwards compatibility.
 from __future__ import annotations
 
 import base64
-import contextlib
 import inspect
 import io
 import json
@@ -40,6 +39,7 @@ from flask import Flask, Response, abort, jsonify, request
 
 from pixlang.commands import registry as pxl_registry
 from pixlang.commands.builtin import _unwrap
+from pixlang.commands.confine import PathConfinementError, PathGuard
 from pixlang.commands.registry import CommandRegistry
 from pixlang.executor.engine import Executor
 from pixlang.linter import Linter
@@ -62,6 +62,8 @@ from pixlang.parser.ast_nodes import (
     WhileBlock,
     expr_source,
 )
+
+from .rungate import RunBlocked, RunGate, capture_thread_stdout
 
 # ── Path constants ────────────────────────────────────────────────────────────
 
@@ -105,11 +107,6 @@ _COMMAND_CATEGORIES: dict[str, list[str]] = {
 _CMD_TO_CATEGORY: dict[str, str] = {
     cmd: cat for cat, cmds in _COMMAND_CATEGORIES.items() for cmd in cmds
 }
-
-# Commands whose first string argument is a file read / written relative to
-# the pipeline file.  Used to make relative paths behave like the CLI.
-_INPUT_PATH_CMDS  = {"LOAD"}
-_OUTPUT_PATH_CMDS = {"SAVE", "HISTOGRAM_SAVE"}
 
 _OPERATORS = ["==", "!=", "<=", ">=", "<", ">", "+", "-", "*", "/", "%",
               "&", "|", "^", "~", "<<", ">>", "=", "&&", "||", "!"]
@@ -635,24 +632,18 @@ class _CapturingExecutor(Executor):
     """Executor that retains the final / partial / first-LOAD images, per-line
     timing, visited lines, and supports cooperative cancellation."""
 
-    def __init__(self, *args: Any, base_dir: Path | None = None,
-                 workspace_root: Path | None = None,
-                 include_roots: list[Path] | None = None,
-                 cancel: threading.Event | None = None, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, cancel: threading.Event | None = None,
+                 **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.final_image: Any = None
         self.last_image: Any = None
         self.before_image: Any = None
-        self.base_dir = base_dir
-        self.workspace_root = workspace_root
-        self.include_roots = include_roots
         self.cancel = cancel or threading.Event()
         self.line_times: dict[int, dict] = {}
         self.visited: set[int] = set()
         self.current_line: int | None = None
         self._include_depth = 0
 
-    # hooks ---------------------------------------------------------------
     def _check_cancel(self) -> None:
         if self.cancel.is_set():
             raise RunCancelled("Run cancelled (time limit reached)")
@@ -673,7 +664,7 @@ class _CapturingExecutor(Executor):
 
     def _before_command(self, cmd: Command) -> Command:
         self._check_cancel()
-        return self._rewrite_paths(cmd)
+        return cmd
 
     def _after_command(self, cmd: Command, elapsed_ms: float) -> None:
         if self._include_depth == 0 and cmd.line:
@@ -685,12 +676,12 @@ class _CapturingExecutor(Executor):
             self.before_image = self.image
 
     def _check_include_path(self, inc_path: Path, stmt: IncludeStmt) -> None:
-        roots = self.include_roots or []
-        if roots and not any(_is_within(inc_path, r) for r in roots):
-            raise RuntimeError(
-                f"[INCLUDE] '{stmt.path}' is outside the editor workspace (line {stmt.line})")
-        if inc_path.suffix.lower() != ".pxl":
-            raise RuntimeError(f"[INCLUDE] Only .pxl files can be included (line {stmt.line})")
+        if self.path_guard is None:
+            return
+        try:
+            self.path_guard.check_module(inc_path)
+        except PathConfinementError as exc:
+            raise RuntimeError(f"[INCLUDE] {exc} (line {stmt.line})") from None
 
     def _do_include(self, stmt: IncludeStmt) -> None:
         self._include_depth += 1
@@ -701,37 +692,6 @@ class _CapturingExecutor(Executor):
                 f"[INCLUDE] Syntax error in '{stmt.path}' (line {stmt.line})") from exc
         finally:
             self._include_depth -= 1
-
-    def _rewrite_paths(self, cmd: Command) -> Command:
-        """Relative paths resolve against the pipeline file's directory; inputs
-        fall back to the workspace root (matching `pixlang run` from the project
-        root); output directories inside the workspace are created."""
-        if self.base_dir is None or not cmd.args:
-            return cmd
-        if cmd.name not in _INPUT_PATH_CMDS and cmd.name not in _OUTPUT_PATH_CMDS:
-            return cmd
-        raw = cmd.args[0]
-        try:
-            val = self._resolve(raw)
-        except Exception:
-            return cmd
-        if not isinstance(val, str) or not val or os.path.isabs(val):
-            return cmd
-        primary = (self.base_dir / val)
-        new_val = None
-        if cmd.name in _INPUT_PATH_CMDS:
-            if not primary.exists() and self.workspace_root is not None:
-                alt = self.workspace_root / val
-                if alt.exists():
-                    new_val = str(alt)
-        else:
-            parent = primary.resolve().parent
-            if self.workspace_root is not None and _is_within(parent, self.workspace_root):
-                with contextlib.suppress(OSError):
-                    parent.mkdir(parents=True, exist_ok=True)
-        if new_val is None:
-            return cmd
-        return Command(name=cmd.name, args=[new_val] + list(cmd.args[1:]), line=cmd.line)
 
 
 def _is_within(p: Path, root: Path) -> bool:
@@ -885,6 +845,11 @@ SAVE "out/result.png"
 # Run result payload (shared by /api/run and the step debugger)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _gate_info(kind: str, message: Any) -> dict:
+    return {"kind": kind, "message": str(message), "line": None, "col": None, "file": None,
+            "raw": "", "type": kind.capitalize()}
+
+
 def empty_run_payload(run_id: str) -> dict:
     """The /api/run response skeleton for a run that produced nothing."""
     return {"run_id": run_id, "ok": False, "image_b64": None, "image": None,
@@ -899,7 +864,7 @@ def build_run_payload(*, run_id: str, executor: _CapturingExecutor, code: str,
                       timeout: float = DEFAULT_TIMEOUT_S, stdout: str = "",
                       wall_ms: float = 0.0, results: _ResultStore, root: Path,
                       pipeline_path: Path | None, loader: Any = None,
-                      info_override: dict | None = None) -> dict:
+                      info_override: dict | None = None, abandoned: bool = False) -> dict:
     """Assemble the JSON body describing a finished (or failed) run.
 
     Image arrays are registered in *results* under *run_id* so the
@@ -911,9 +876,11 @@ def build_run_payload(*, run_id: str, executor: _CapturingExecutor, code: str,
         info = info_override
         err = info["message"]
     elif timed_out:
+        verdict = ("and could not be stopped: it is stuck inside a command and was abandoned"
+                   if abandoned else "and was stopped")
         info = {"kind": "timeout", "line": executor.current_line, "col": None,
                 "file": None, "type": "Timeout", "raw": "",
-                "message": f"Run exceeded the {timeout:g}s time limit and was stopped"}
+                "message": f"Run exceeded the {timeout:g}s time limit {verdict}"}
         err = info["message"]
     elif exc is not None:
         info = error_info(exc, code, "runtime", fallback_line=executor.current_line)
@@ -1025,7 +992,8 @@ def create_app(workspace: str | os.PathLike | None = None, *,
     app.config["PIXLANG_RUN_TIMEOUT"] = float(run_timeout)
 
     results = _ResultStore()
-    run_lock = threading.Lock()
+    gate = RunGate()
+    app.config["PIXLANG_GATE"] = gate
 
     from .debugger import (
         DEFAULT_IDLE_TIMEOUT_S,
@@ -1035,7 +1003,7 @@ def create_app(workspace: str | os.PathLike | None = None, *,
         normalize_watch,
     )
     dbg = DebugManager(
-        registry=reg, root=root, run_lock=run_lock, results=results, plugins=plugins,
+        registry=reg, root=root, gate=gate, results=results, plugins=plugins,
         timeout_fn=lambda: app.config["PIXLANG_RUN_TIMEOUT"],
         idle_timeout=DEFAULT_IDLE_TIMEOUT_S if debug_idle_timeout is None
         else float(debug_idle_timeout))
@@ -1126,15 +1094,16 @@ def create_app(workspace: str | os.PathLike | None = None, *,
     def _rel(p: Path) -> str:
         return p.resolve().relative_to(root).as_posix()
 
-    def _locate(data: dict) -> tuple[Path | None, Path]:
-        """Where does a request's pipeline "live"?  -> (pipeline_path, base_dir)"""
+    def _locate(data: dict) -> tuple[Path | None, PathGuard]:
+        """Where does a request's pipeline "live", and what may it touch?"""
         example = _example_path(data.get("example")) if data.get("example") else None
         if example is not None:
-            return example, ex_dir.parent          # examples use repo-root paths
+            # examples name their inputs from the repo root but must write into the workspace
+            return example, PathGuard(ex_dir.parent, [root, ex_dir], [root],
+                                      write_base=root, fallback_dir=root)
         p = _ws_path(data.get("path") or data.get("filename"))
-        if p is not None:
-            return p, p.parent
-        return None, root
+        base = p.parent if p is not None else root
+        return p, PathGuard(base, [root, ex_dir], [root], fallback_dir=root)
 
     # ── routes: shell ─────────────────────────────────────────────────────────
 
@@ -1224,7 +1193,7 @@ def create_app(workspace: str | os.PathLike | None = None, *,
         code = _code(data)
         run_id = uuid.uuid4().hex
 
-        pipeline_path, base_dir = _locate(data)
+        pipeline_path, guard = _locate(data)
         empty = empty_run_payload(run_id)
 
         try:
@@ -1233,10 +1202,13 @@ def create_app(workspace: str | os.PathLike | None = None, *,
             info = error_info(exc, code, "syntax")
             return jsonify({**empty, "error": str(exc), "error_info": info})
 
-        if not run_lock.acquire(timeout=2.0):
-            info = {"kind": "busy", "message": "Another run is still in progress",
-                    "line": None, "col": None, "file": None, "raw": "", "type": "Busy"}
-            return jsonify({**empty, "error": info["message"], "error_info": info})
+        try:
+            ticket = gate.acquire(timeout=2.0)
+        except RunBlocked as exc:
+            return jsonify({**empty, "error": str(exc), "error_info": _gate_info("stuck", exc)})
+        if ticket is None:
+            msg = "Another run is still in progress"
+            return jsonify({**empty, "error": msg, "error_info": _gate_info("busy", msg)})
 
         loader = None
         if plugins:
@@ -1248,26 +1220,19 @@ def create_app(workspace: str | os.PathLike | None = None, *,
         cancel = threading.Event()
         executor = _CapturingExecutor(
             registry=reg, verbose=False, plugin_loader=loader,
-            pipeline_path=pipeline_path, base_dir=base_dir, workspace_root=root,
-            include_roots=[root, ex_dir], cancel=cancel)
+            pipeline_path=pipeline_path, path_guard=guard, cancel=cancel)
 
         stdout_buf = io.StringIO()
         outcome: dict[str, Any] = {}
 
         def work() -> None:
-            prev_cwd = os.getcwd()
             try:
-                if not base_dir.exists() and _is_within(base_dir, root):
-                    base_dir.mkdir(parents=True, exist_ok=True)
-                os.chdir(base_dir)
-                with contextlib.redirect_stdout(stdout_buf):
+                with capture_thread_stdout(stdout_buf):
                     executor.run(pipeline)
-            except BaseException as exc:  # noqa: BLE001 — report everything
+            except BaseException as exc:  # noqa: BLE001 — thread boundary: report everything
                 outcome["exc"] = exc
             finally:
-                with contextlib.suppress(OSError):
-                    os.chdir(prev_cwd)
-                run_lock.release()
+                ticket.release()
 
         worker = threading.Thread(target=work, name=f"pixlang-run-{run_id[:8]}", daemon=True)
         t0 = time.perf_counter()
@@ -1275,16 +1240,20 @@ def create_app(workspace: str | os.PathLike | None = None, *,
         timeout = app.config["PIXLANG_RUN_TIMEOUT"]
         worker.join(timeout)
         timed_out = worker.is_alive()
+        abandoned = False
         if timed_out:
             cancel.set()
-            worker.join(1.0)
+            worker.join(gate.grace)
+            if worker.is_alive():
+                ticket.abandon(worker)
+                abandoned = True
         wall_ms = (time.perf_counter() - t0) * 1000
 
         payload = build_run_payload(
             run_id=run_id, executor=executor, code=code, exc=outcome.get("exc"),
             timed_out=timed_out, timeout=timeout, stdout=stdout_buf.getvalue(),
             wall_ms=wall_ms, results=results, root=root, pipeline_path=pipeline_path,
-            loader=loader)
+            loader=loader, abandoned=abandoned)
         return jsonify(payload)
 
     @app.route("/api/result/<run_id>/<name>")
@@ -1321,15 +1290,14 @@ def create_app(workspace: str | os.PathLike | None = None, *,
         entry = data.get("stop_on_entry")
         if entry is not None and not isinstance(entry, bool):
             return _err("stop_on_entry must be a boolean", 400)
-        pipeline_path, base_dir = _locate(data)
+        pipeline_path, guard = _locate(data)
         try:
             pipeline = pxl_parse(code)
         except SyntaxError as exc:
             return jsonify(dbg.failed(code=code, exc=exc).view())
         try:
             sess = dbg.start(code=code, pipeline=pipeline, pipeline_path=pipeline_path,
-                             base_dir=base_dir, include_roots=[root, ex_dir],
-                             breakpoints=bps, watch=watch, stop_on_entry=entry)
+                             guard=guard, breakpoints=bps, watch=watch, stop_on_entry=entry)
         except RuntimeError as exc:
             return _err(str(exc), 409)
         return jsonify(sess.wait_for_change(1, 1.0))

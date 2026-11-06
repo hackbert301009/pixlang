@@ -18,12 +18,14 @@ flask = pytest.importorskip("flask")
 
 # Patch WORKSPACE_FILE before importing server so tests never touch ~/.pixlang…
 import pixlang.editor.server as _srv  # noqa: E402 (import after importorskip)
-from pixlang.editor.server import EXAMPLES_DIR, app  # noqa: E402
+from pixlang.editor.server import EXAMPLES_DIR, create_app  # noqa: E402
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(_srv, "WORKSPACE_FILE", tmp_path / "test_workspace.json")
+    # images the tests write live in tmp_path, so that is the workspace
+    app = create_app(tmp_path)
     app.config["TESTING"] = True
     with app.test_client() as c:
         # API calls require the per-process editor token (CSRF protection).

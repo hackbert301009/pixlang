@@ -84,6 +84,9 @@ def register_batch_commands(registry: CommandRegistry) -> None:
         else:
             base_dir = _ctx.get("pipeline_dir", Path("."))
             files = expand_pattern(pattern, base_dir)
+            guard = _ctx.get("path_guard")
+            if guard is not None:
+                files = [f for f in files if guard.allows(f)]   # symlinks can lead out
             if not files:
                 raise FileNotFoundError(
                     f"[LOAD_GLOB] No files matched pattern: '{pattern}'\n"
@@ -100,9 +103,9 @@ def register_batch_commands(registry: CommandRegistry) -> None:
         return loaded
 
     cmd_load_glob.fresh_image = True
-    registry.register("LOAD_GLOB", category="I/O")(cmd_load_glob)
+    registry.register("LOAD_GLOB", category="I/O", paths={"pattern": "glob"})(cmd_load_glob)
 
-    @registry.register("SAVE_EACH", category="I/O")
+    @registry.register("SAVE_EACH", category="I/O", paths={"template": "template"})
     def cmd_save_each(image, template: str, _ctx: dict = None):
         """SAVE_EACH "output/{stem}_result.png"  — save each batch image with template name.
 
@@ -140,6 +143,9 @@ def register_batch_commands(registry: CommandRegistry) -> None:
         except (KeyError, ValueError, IndexError) as e:
             raise RuntimeError(f"[SAVE_EACH] Template error in '{template}': {e}") from None
 
+        guard = _ctx.get("path_guard")
+        if guard is not None:       # variables can turn a harmless template into any path
+            out_path = guard.resolve(out_path, "write")
         written = _write_image("SAVE_EACH", out_path, img)
         if _ctx.get("verbose"):
             print(f"       → {written}")
