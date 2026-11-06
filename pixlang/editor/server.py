@@ -1045,7 +1045,8 @@ def create_app(workspace: str | os.PathLike | None = None, *,
         resp.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
-            "script-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'")
+            "script-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; "
+            "base-uri 'none'; form-action 'none'; object-src 'none'")
         if request.path.startswith("/api/") and not request.path.startswith("/api/result/"):
             resp.headers.setdefault("Cache-Control", "no-store")
         return resp

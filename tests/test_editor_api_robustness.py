@@ -99,6 +99,12 @@ class TestBody:
         assert r.status_code == 413
 
 
+def test_csp_forbids_base_forms_and_plugins(client):
+    csp = client.get("/").headers["Content-Security-Policy"]
+    for directive in ("base-uri 'none'", "form-action 'none'", "object-src 'none'"):
+        assert directive in csp
+
+
 class TestLanguageMatchesSignatures:
     def test_every_command_agrees_with_inspect(self, client):
         served = {c["name"]: c for c in client.get("/api/language").get_json()["commands"]}
