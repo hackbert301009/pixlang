@@ -664,8 +664,8 @@ class _CapturingExecutor(Executor):
 
     def _on_statement(self, stmt: Any) -> None:
         self._check_cancel()
-        if self._include_depth == 0:
-            line = getattr(stmt, "line", None)
+        if self._include_depth == 0 and stmt.file is None:     # lines of the edited file only
+            line = stmt.line
             if isinstance(line, int) and line > 0:
                 self.visited.add(line)
                 self.current_line = line
@@ -829,6 +829,15 @@ SAVE "out/result.png"
 # Run result payload (shared by /api/run and the step debugger)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _same_file(a: str | os.PathLike, b: Path | None) -> bool:
+    return b is not None and Path(a).resolve() == b.resolve()
+
+
+def _display_path(file: str, root: Path) -> str:
+    p = Path(file)
+    return p.resolve().relative_to(root).as_posix() if _is_within(p, root) else p.name
+
+
 def _gate_info(kind: str, message: Any) -> dict:
     return {"kind": kind, "message": str(message), "line": None, "col": None, "file": None,
             "raw": "", "type": kind.capitalize()}
@@ -868,9 +877,14 @@ def build_run_payload(*, run_id: str, executor: _CapturingExecutor, code: str,
         err = info["message"]
     elif exc is not None:
         info = error_info(exc, code, "runtime", fallback_line=executor.current_line)
-        if info.get("file") and pipeline_path is not None and \
-                Path(info["file"]).name != pipeline_path.name:
-            info["line"] = executor.current_line
+        if info.get("file") and not _same_file(info["file"], pipeline_path):
+            # the failing line belongs to another file: mark where the edited file called it
+            info.update(file_line=info["line"], line=executor.current_line, col=None,
+                        file=_display_path(info["file"], root))
+        elif info.get("file"):
+            info["file"] = _display_path(info["file"], root)
+        for key in ("message", "raw"):
+            info[key] = info[key].replace(f"{root}{os.sep}", "")
         err = str(exc)
 
     raw_stats = executor.context.get("stats", {})

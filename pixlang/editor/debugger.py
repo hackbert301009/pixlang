@@ -831,9 +831,7 @@ class DebugSession:
             "pause": self._pauses,
             "reason": reason,
             "message": message,
-            "location": None if stmt is None else {
-                "line": stmt.line or None, "col": stmt.col or None,
-                "statement": type(stmt).__name__},
+            "location": None if stmt is None else self._location(stmt, stack),
             "stack": stack if keep_stack else [],
             "variables": {"globals": gvars, "frames": variables_by_frame},
             "buffers": buffers,
@@ -844,6 +842,16 @@ class DebugSession:
             "stdout": self.stdout_buf.getvalue()[-MAX_STDOUT_CHARS:],
             "visited_lines": sorted(ex.visited),
         }
+
+    @staticmethod
+    def _location(stmt: Any, stack: list[dict]) -> dict:
+        """Where the editor should point: a statement in another file is shown
+        at the innermost call in the edited file instead."""
+        line, col = stmt.line, stmt.col
+        if stmt.file is not None:
+            site = next((e for e in stack if e["file"] is None), None)
+            line, col = (site["line"], site["col"]) if site else (None, None)
+        return {"line": line or None, "col": col or None, "statement": type(stmt).__name__}
 
     # ── control (request threads) ──────────────────────────────────────────
 
