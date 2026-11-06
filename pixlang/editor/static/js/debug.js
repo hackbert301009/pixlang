@@ -12,6 +12,8 @@ import {
 
 const ACTIVE = new Set(["starting", "running", "paused"]);
 const FINAL = new Set(["finished", "error", "stopped"]);
+const POLL_WAIT_S = 20;      // server-side long poll
+const POLL_MARGIN_S = 10;    // extra time before a silent server counts as gone
 
 const KEYS = {
   start: "mod+shift+d", continue: "f8", step_over: "f10", step_into: "f11",
@@ -47,14 +49,14 @@ export function createDebugger(deps) {
     sid: null, state: "idle", seq: 0, snap: null, code: "", loop: 0, sel: 0,
     watch: [], open: new Set(), changed: new Set(), prevVals: new Map(),
     outText: "", clearTimer: null, starting: false, widened: null,
-    collapsed: new Set(store.get("dbgCollapsed", [])),
+    collapsed: new Set(store.getList("dbgCollapsed", (id) => typeof id === "string")),
     startedAt: 0, pauseN: -1,
   };
   const view = () => deps.view();
   const app = () => $("#app");
 
   // ── Persistence (per file) ────────────────────────────────────────────────
-  const loadMap = (name) => store.get(name, {}) || {};
+  const loadMap = (name) => store.getObject(name);
   function saveMap(name, key, value) {
     const m = loadMap(name);
     if (value && value.length) m[key] = value; else delete m[key];
@@ -157,20 +159,27 @@ export function createDebugger(deps) {
     renderAll();
   }
 
+  /** The session can no longer be followed: give the editor back instead of showing "Debugging…". */
+  function connectionLost(message) {
+    D.loop += 1;
+    toast(message, "err");
+    lockEditor(false);
+    setDebugLine(view(), null);
+    setState("stopped");
+  }
+
   async function poll(loopId) {
     let failures = 0;
     while (loopId === D.loop && D.sid) {
       let snap;
       try {
-        snap = await api(`/api/debug/${D.sid}/state?wait=${D.seq}&timeout=20`);
+        snap = await api(`/api/debug/${D.sid}/state?wait=${D.seq}&timeout=${POLL_WAIT_S}`,
+          undefined, { timeout: (POLL_WAIT_S + POLL_MARGIN_S) * 1000 });
         failures = 0;
       } catch (e) {
         if (loopId !== D.loop) return;
-        if (e.status === 404 || ++failures > 3) {
-          toast("Lost connection to the debug session", "err");
-          lockEditor(false);
-          setDebugLine(view(), null);
-          setState("stopped");
+        if (e.status === 404 || e.kind === "auth" || ++failures > 3) {
+          connectionLost(e.kind === "auth" ? e.message : "Lost connection to the debug session");
           return;
         }
         await new Promise((r) => setTimeout(r, 400 * failures));
@@ -195,7 +204,8 @@ export function createDebugger(deps) {
       const snap = await api(`/api/debug/${D.sid}/control`, { action });
       apply(snap);
     } catch (e) {
-      if (e.status !== 409) toast(e.message, "err");
+      if (e.kind === "offline" || e.kind === "timeout" || e.kind === "auth") connectionLost(e.message);
+      else if (e.status !== 409) toast(e.message, "err");
       else if (D.snap) setState(D.snap.state);
     }
   }
