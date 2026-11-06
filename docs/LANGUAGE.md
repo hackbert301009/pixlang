@@ -129,6 +129,12 @@ falls back to the image properties `width height channels depth min max
 contour_count ndim`. The linter warns (PX012) when such a word looks like a
 typo of a variable.
 
+Outside `ASSERT` a bare `contour_count` or `width` is just the string
+`"contour_count"`, so `SET n contour_count` stores text. Read image
+properties with `_.width`, `_.height`, `_.channels`, `_.depth`, `_.ndim`,
+`_.min`, `_.max` and `_.contour_count` (`SET n _.contour_count`); the linter
+warns (PX013) when a `SET` value is a bare property or command name.
+
 ## 4. Statements
 
 | Statement | Meaning |
@@ -405,12 +411,13 @@ a.pxl → b.pxl → a.pxl`, `unterminated string literal`.
 
 ## 11. Linter
 
-Rules PX001-PX012 plus the linker's LNK codes (see `pixlang/linter/engine.py`
+Rules PX001-PX013 plus the linker's LNK codes (see `pixlang/linter/engine.py`
 for the list). Highlights: blocks and included files are analysed; PX001
 accepts `LOAD_GLOB`/`INCLUDE`/`USE` starts; PX005 is order-aware and knows
 variables from `pixlang.toml`; PX008 flags `REPEAT 0` as a warning; PX012
 warns when a bare word silently becomes a string but resembles a defined
-variable; a crashing rule is reported as PX000 instead of being hidden.
+variable; PX013 warns when a `SET` value is a bare image property or command
+name; a crashing rule is reported as PX000 instead of being hidden.
 `pixlang run` and `pixlang batch` apply the PX011 and linker error checks
 before executing (after loading plugins); `--no-preflight` skips them.
 `pixlang lint` and `pixlang validate` accept `--var key=value` (repeatable, as

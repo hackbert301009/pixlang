@@ -51,7 +51,7 @@ SAVE "output/result.png"
 | **ROI** | `ROI x y w h … ROI_RESET` — process masked regions, auto-paste back |
 | **Batch** | `LOAD_GLOB` + `SAVE_EACH` — multi-file runs with template filenames |
 | **Plugins** | Entry-points (auto), local `.plugins.py` / directory (opt-in via `--trust-plugins`) |
-| **Linter** | 12 rules, `pixlang lint`, integrated into watch mode |
+| **Linter** | 13 rules, `pixlang lint`, integrated into watch mode |
 | **Watch** | `pixlang watch` — file-change polling with auto-rerun |
 | **Config** | `pixlang.toml` — project-level variables, defaults, lint overrides |
 | **71 commands** | I/O · Geometry · Color · Threshold · Filter · Morphology · Analysis · Annotation · Depth · Bitwise · LUT · Channels · Raw/embedded |
@@ -333,6 +333,7 @@ PixLang searches for `pixlang.toml` in the pipeline directory and parent directo
 | PX010 | WARNING | THRESHOLD before GRAYSCALE |
 | PX011 | ERROR | Unknown command name |
 | PX012 | WARNING | Bare word looks like a typo of a defined variable |
+| PX013 | WARNING | `SET` value is a bare image property or command name (stored as a string) |
 
 Rule crashes are reported as `PX000`; ignore rules with `[lint] ignore = [...]`.
 

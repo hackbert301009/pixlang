@@ -86,6 +86,10 @@ if TYPE_CHECKING:
 IMAGE_SUBJECTS = ("width", "height", "channels", "depth", "min", "max",
                   "contour_count", "ndim")
 
+# Properties of the current image that are not plain array attributes; reachable
+# as `_.min`, `_.contour_count` ... in any expression
+IMAGE_ONLY_SUBJECTS = ("min", "max", "contour_count")
+
 # Kept for backwards compatibility (v0.3 imported these from here)
 _OPS = {op: (lambda o: (lambda a, b: memory.compare(o, a, b)))(op)
         for op in ("==", "!=", "<", ">", "<=", ">=")}
@@ -1081,6 +1085,9 @@ class Executor:
                           f"({memory.type_name(target)})", node)
 
     def _ev_attr(self, node: Attr) -> Any:
+        if node.name in IMAGE_ONLY_SUBJECTS and isinstance(node.target, BareIdent) \
+                and node.target.name == "_" and not self._lookup("_")[0]:
+            return self._image_subject(node.name, node)
         target = self._eval(node.target)
         if isinstance(target, Ref):
             view = self._deref(target, node)

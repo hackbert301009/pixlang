@@ -12,6 +12,9 @@ Format: [Semantic Versioning](https://semver.org)
 ### Added
 - `pixlang run` / `batch` check the pipeline before executing anything: unknown commands (with did-you-mean) and link errors are reported as `file:line:col` up front instead of after a slow `LOAD`. Plugins are loaded first, honouring the trust model. `--no-preflight` skips the check.
 
+- `_.contour_count`, `_.min` and `_.max` read image properties in any expression (`SET n _.contour_count`).
+- Linter rule PX013: a `SET` value that is a bare image property (`SET n contour_count`) or command name is stored as a string; the warning points at `_.contour_count` / quoting.
+
 ### Fixed
 - **Chained comparisons now work.** `ASSERT 0 < $n < 10` used to parse as `(0 < n) < 10` and always passed; it now means `0 < n and n < 10` with the middle operand evaluated once. Comparing a bool with a number using `<`, `>`, `<=` or `>=` is now an error (`==` / `!=` still work).
 
