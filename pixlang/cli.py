@@ -28,6 +28,9 @@ from pathlib import Path
 
 from pixlang._style import Style, is_tty
 
+# Lint findings that make a run pointless; the rest stay advisory.
+PREFLIGHT_CODES = ("PX011", "PARSE")
+
 
 def _version() -> str:
     try:
@@ -45,6 +48,8 @@ def _add_run_options(p: argparse.ArgumentParser) -> None:
                    help="Allow local <stem>.plugins.py and ~/.pixlang/plugins/*.py "
                         "(arbitrary Python code)")
     _add_var_option(p)
+    p.add_argument("--no-preflight", action="store_true",
+                   help="Skip the unknown-command and link check that runs before execution")
 
 
 def _add_var_option(p: argparse.ArgumentParser) -> None:
@@ -197,6 +202,8 @@ def _cmd_run(args, force_batch: bool = False):
     print(f"  Verbose   : {verbose}  |  Plugins: {plugins}")
 
     pipeline = _parse_or_die(path)
+    if not args.no_preflight:
+        _preflight(pipeline, path, loader)
     has_glob = bool(find_glob_commands(pipeline))
     if force_batch and not has_glob:
         _error("`pixlang batch` needs a pipeline with LOAD_GLOB \"pattern\".")
@@ -231,6 +238,29 @@ def _cmd_run(args, force_batch: bool = False):
 
     print()
     _success("Pipeline completed successfully.")
+
+
+def _preflight(pipeline, path: Path, loader) -> None:
+    """Fail before the first command runs on mistakes that would otherwise
+    surface only after slow steps such as LOAD have finished."""
+    from pixlang import registry
+    from pixlang.linter import Linter, Severity
+
+    if loader is not None:
+        loader.load_entrypoints()
+        loader.load_local(path)
+        loader.load_directory()
+    blocking = [d for d in Linter(registry).lint(pipeline, path=path)
+                if d.severity is Severity.ERROR
+                and (d.code in PREFLIGHT_CODES or d.code.startswith("LNK"))]
+    if not blocking:
+        return
+    S = Style(sys.stderr)
+    for d in blocking:
+        print(f"  {S.red}{d.file or path}:{d.line}:{d.col}: {d.message}{S.reset}",
+              file=sys.stderr)
+    _error(f"{len(blocking)} problem(s) found before running "
+           f"(skip this check with --no-preflight).")
 
 
 def _cmd_lint(filepath, var_specs=()):

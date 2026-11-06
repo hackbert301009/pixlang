@@ -75,12 +75,12 @@ pixlang run examples/pipeline.pxl --verbose
 ## CLI Reference
 
 ```bash
-pixlang run      pipeline.pxl [--verbose] [--no-plugins] [--trust-plugins] [--var k=v]
+pixlang run      pipeline.pxl [--verbose] [--no-plugins] [--trust-plugins] [--var k=v] [--no-preflight]
 pixlang batch    pipeline.pxl [--var k=v]
 pixlang link     pipeline.pxl [--map]
-pixlang lint     pipeline.pxl
+pixlang lint     pipeline.pxl [--var k=v]
 pixlang watch    pipeline.pxl [--verbose] [--interval 0.5]
-pixlang validate pipeline.pxl
+pixlang validate pipeline.pxl [--var k=v]
 pixlang commands [--source builtin] [--category Bitwise]
 pixlang plugins
 pixlang new      <project-name>
