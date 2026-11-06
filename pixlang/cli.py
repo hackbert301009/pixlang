@@ -616,12 +616,16 @@ def _parse_or_die(path: Path):
 
 
 def _fail(exc: BaseException, verbose: bool = False):
+    from pixlang.parser import PixAssertionError, PixRuntimeError
     from pixlang.watcher.engine import format_syntax_error
     if isinstance(exc, (SyntaxError, RecursionError)):
         msg = format_syntax_error(exc)
     else:
         msg = str(exc) or type(exc).__name__
-    if verbose:
+    # Rejected inspections and user mistakes are explained by their message;
+    # a traceback only helps when the failure is a bug in PixLang itself.
+    expected = isinstance(exc, (PixAssertionError, PixRuntimeError, SyntaxError))
+    if verbose and not expected:
         traceback.print_exc()
     _error(msg)
 

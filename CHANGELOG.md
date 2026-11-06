@@ -12,6 +12,8 @@ Format: [Semantic Versioning](https://semver.org)
 ### Fixed
 - **Chained comparisons now work.** `ASSERT 0 < $n < 10` used to parse as `(0 < n) < 10` and always passed; it now means `0 < n and n < 10` with the middle operand evaluated once. Comparing a bool with a number using `<`, `>`, `<=` or `>=` is now an error (`==` / `!=` still work).
 
+- `--verbose` no longer prints a Python traceback for a failed `ASSERT`, a runtime error, a syntax error or a link error; only unexpected internal exceptions get one.
+
 ### Changed
 - `pixlang.editor.server.app` is now created on first access instead of at import time.
 
