@@ -403,6 +403,12 @@ pytest tests/test_v4.py     # v0.4 only
 
 ---
 
+## Contributing
+
+Setup, style rules, and how to add commands and tests are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
