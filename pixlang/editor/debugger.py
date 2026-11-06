@@ -61,6 +61,7 @@ from pixlang.parser.errors import PixSyntaxError
 
 from .rungate import MAX_STDOUT_CHARS, RunGate, RunTicket, capture_thread_stdout
 from .server import (
+    EDITOR_LIMITS,
     THUMB_MAX_SIDE,
     _as_array,
     _CapturingExecutor,
@@ -1027,7 +1028,7 @@ class DebugManager:
             ex = DebugExecutor(
                 registry=self.registry, verbose=False, plugin_loader=loader,
                 pipeline_path=pipeline_path, path_guard=guard, cancel=sess.cancel,
-                session=sess)
+                array_limits=EDITOR_LIMITS, session=sess)
             with self._lock:
                 self._sessions[sess.id] = sess
                 self._trim()

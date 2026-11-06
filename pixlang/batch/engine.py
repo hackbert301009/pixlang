@@ -42,6 +42,8 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional
 
 import cv2
 
+from pixlang.commands.limits import check_image_file
+
 if TYPE_CHECKING:
     from pixlang.commands.registry import CommandRegistry
 
@@ -97,6 +99,7 @@ def register_batch_commands(registry: CommandRegistry) -> None:
         _ctx["batch_files"] = files
         _update_batch_ctx(_ctx, current, index)
 
+        check_image_file("LOAD_GLOB", str(current))
         loaded = cv2.imread(str(current), cv2.IMREAD_UNCHANGED)
         if loaded is None:
             raise OSError(f"[LOAD_GLOB] Cannot read: {current}")

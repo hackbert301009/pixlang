@@ -34,6 +34,7 @@ import numpy as np
 
 from pixlang.commands.builtin import _unwrap, _wrap
 from pixlang.commands.confine import PathConfinementError, PathGuard
+from pixlang.commands.limits import DEFAULT_LIMITS, ArrayLimits, check_array, enforce
 from pixlang.commands.registry import CommandRegistry
 from pixlang.parser.ast_nodes import (
     AllocStmt,
@@ -140,6 +141,7 @@ class Executor:
         pipeline_path: Optional[Path] = None,
         max_loop_iterations: Optional[int] = None,
         path_guard: Optional[PathGuard] = None,
+        array_limits: ArrayLimits = DEFAULT_LIMITS,
     ):
         self.registry      = registry
         self.verbose       = verbose
@@ -147,6 +149,7 @@ class Executor:
         self.pipeline_path = Path(pipeline_path) if pipeline_path else None
         self.max_loop_iterations = max_loop_iterations
         self.path_guard = path_guard
+        self.array_limits = array_limits
 
         # Shared mutable state threaded through the entire pipeline
         self.context: Dict[str, Any] = {
@@ -193,7 +196,7 @@ class Executor:
         self._load_plugins()
         total_start = time.perf_counter()
 
-        with self._deep_recursion():
+        with self._deep_recursion(), enforce(self.array_limits):
             self._prepare(pipeline)
             self.image = None
             self._run_program()
@@ -837,6 +840,7 @@ class Executor:
         if w <= 0 or h <= 0 or c <= 0:
             raise self._error(f"[ALLOC] dimensions must be > 0, got {w}×{h}×{c}", stmt)
         dt = memory.dtype_of(stmt.dtype)
+        check_array("ALLOC", h, w, c, dt.itemsize)
         fill = self._plain(self._resolve(stmt.fill))
         shape = (h, w) if c == 1 else (h, w, c)
         arr = np.zeros(shape, dtype=dt)

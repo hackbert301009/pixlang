@@ -40,6 +40,7 @@ from flask import Flask, Response, abort, jsonify, request
 from pixlang.commands import registry as pxl_registry
 from pixlang.commands.builtin import _unwrap
 from pixlang.commands.confine import PathConfinementError, PathGuard
+from pixlang.commands.limits import ArrayLimits
 from pixlang.commands.registry import CommandRegistry
 from pixlang.executor.engine import Executor
 from pixlang.linter import Linter
@@ -83,7 +84,9 @@ DEFAULT_TIMEOUT_S  = 30.0
 PREVIEW_MAX_SIDE   = 1200                   # legacy image_b64 downscale
 FULL_MAX_SIDE      = 4096                   # /api/result full-size cap
 THUMB_MAX_SIDE     = 160
-RESULT_CACHE_RUNS  = 6
+RESULT_CACHE_RUNS  = 3
+RESULT_CACHE_BYTES = 192 * 1024 * 1024
+EDITOR_LIMITS      = ArrayLimits(max_pixels=32_000_000, max_bytes=256 * 1024 * 1024)
 MAX_LISTED_FILES   = 500
 
 _ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
@@ -589,17 +592,28 @@ def _image_meta(img: Any) -> dict:
 
 
 class _ResultStore:
-    """Keeps the arrays of the last few runs; PNGs are encoded lazily."""
+    """Display-sized copies of the images of the last few runs; PNGs are encoded lazily.
 
-    def __init__(self, max_runs: int = RESULT_CACHE_RUNS) -> None:
+    Full-size arrays are never kept: a run's result is reduced to 8-bit and at
+    most FULL_MAX_SIDE pixels on its long side, and the oldest runs go first
+    once the budget is exceeded.
+    """
+
+    def __init__(self, max_runs: int = RESULT_CACHE_RUNS,
+                 max_bytes: int = RESULT_CACHE_BYTES) -> None:
         self._runs: OrderedDict[str, dict] = OrderedDict()
         self._lock = threading.Lock()
         self._max = max_runs
+        self._max_bytes = max_bytes
 
     def put(self, run_id: str, images: dict[str, Any]) -> None:
+        shown = {name: _to_display(arr, FULL_MAX_SIDE) for name, arr in images.items()}
         with self._lock:
-            self._runs[run_id] = {"arrays": images, "png": {}}
-            while len(self._runs) > self._max:
+            self._runs[run_id] = {"arrays": shown, "png": {},
+                                  "bytes": sum(a.nbytes for a in shown.values())}
+            while len(self._runs) > self._max or (
+                    len(self._runs) > 1 and sum(r["bytes"] for r in self._runs.values())
+                    > self._max_bytes):
                 self._runs.popitem(last=False)
 
     def png(self, run_id: str, name: str, thumb: bool) -> bytes | None:
@@ -1220,7 +1234,8 @@ def create_app(workspace: str | os.PathLike | None = None, *,
         cancel = threading.Event()
         executor = _CapturingExecutor(
             registry=reg, verbose=False, plugin_loader=loader,
-            pipeline_path=pipeline_path, path_guard=guard, cancel=cancel)
+            pipeline_path=pipeline_path, path_guard=guard, cancel=cancel,
+            array_limits=EDITOR_LIMITS)
 
         stdout_buf = io.StringIO()
         outcome: dict[str, Any] = {}

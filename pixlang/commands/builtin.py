@@ -33,6 +33,7 @@ from typing import Any, Optional, Tuple
 import cv2
 import numpy as np
 
+from .limits import check_array, check_image_file
 from .registry import CommandRegistry, _carry_meta
 
 # Command name → category, used by `pixlang commands` and the editor.
@@ -81,10 +82,12 @@ def register_all(r: CommandRegistry):
     @_command(r, "LOAD", fresh=True, paths={"path": "read"})
     def cmd_load(image, path: str):
         """LOAD "path/to/image.png"  — loads image from disk (any depth, keeps alpha)."""
+        check_image_file("LOAD", str(path))
         img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
         if img is None:
             hint = "" if Path(path).exists() else " (file does not exist)"
             raise FileNotFoundError(f"[LOAD] Could not read image: {path!r}{hint}")
+        check_array("LOAD", *img.shape[:2], _channels(img), img.itemsize)
         return img
 
     @_command(r, "SAVE", paths={"path": "write"})
@@ -109,6 +112,7 @@ def register_all(r: CommandRegistry):
         img, _ = _unwrap(image)
         if width <= 0 or height <= 0:
             raise ValueError(f"[RESIZE] width and height must be > 0, got {width}x{height}")
+        check_array("RESIZE", height, width, _channels(img), img.itemsize)
         return _cv("RESIZE", img, cv2.resize, img, (width, height),
                    interpolation=cv2.INTER_AREA)
 
@@ -168,6 +172,7 @@ def register_all(r: CommandRegistry):
             out_h = int(math.ceil(h * cos + w * sin))
             M[0, 2] += (out_w - 1) / 2.0 - center[0]
             M[1, 2] += (out_h - 1) / 2.0 - center[1]
+        check_array("ROTATE", out_h, out_w, _channels(img), img.itemsize)
         return _cv("ROTATE", img, cv2.warpAffine, img, M, (out_w, out_h))
 
     @_command(r, "FLIP")
@@ -893,6 +898,7 @@ def register_v03(r):
         h, w = img.shape[:2]
         new_w = max(1, int(w * factor))
         new_h = max(1, int(h * factor))
+        check_array("RESIZE_PERCENT", new_h, new_w, _channels(img), img.itemsize)
         interp = cv2.INTER_AREA if factor < 1.0 else cv2.INTER_CUBIC
         resized = _cv("RESIZE_PERCENT", img, cv2.resize, img, (new_w, new_h),
                       interpolation=interp)
