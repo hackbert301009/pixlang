@@ -14,6 +14,8 @@ Format: [Semantic Versioning](https://semver.org)
 
 - `--verbose` no longer prints a Python traceback for a failed `ASSERT`, a runtime error, a syntax error or a link error; only unexpected internal exceptions get one.
 
+- `pixlang lint` reported PX005 for variables supplied with `--var`; `lint` and `validate` now accept `--var key=value` and the linter treats those variables as defined.
+
 ### Changed
 - `pixlang.editor.server.app` is now created on first access instead of at import time.
 

@@ -411,7 +411,9 @@ accepts `LOAD_GLOB`/`INCLUDE`/`USE` starts; PX005 is order-aware and knows
 variables from `pixlang.toml`; PX008 flags `REPEAT 0` as a warning; PX012
 warns when a bare word silently becomes a string but resembles a defined
 variable; a crashing rule is reported as PX000 instead of being hidden.
-`[lint] ignore = [...]` is honoured when a file path is known
+`pixlang lint` and `pixlang validate` accept `--var key=value` (repeatable, as
+for `run`); PX005 treats those variables and the `[variables]` of
+`pixlang.toml` as defined. `[lint] ignore = [...]` is honoured when a file path is known
 (`Linter.lint(pipeline, path=...)` / `lint_file`).
 
 ## 12. Configuration (`pixlang.toml`)

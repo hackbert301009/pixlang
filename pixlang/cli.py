@@ -44,6 +44,10 @@ def _add_run_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--trust-plugins", action="store_true",
                    help="Allow local <stem>.plugins.py and ~/.pixlang/plugins/*.py "
                         "(arbitrary Python code)")
+    _add_var_option(p)
+
+
+def _add_var_option(p: argparse.ArgumentParser) -> None:
     p.add_argument("--var", action="append", default=[], metavar="KEY=VALUE",
                    help="Set a pipeline variable (repeatable); overrides pixlang.toml")
 
@@ -64,6 +68,7 @@ def main(argv=None):
 
     lp = sub.add_parser("lint",     help="Lint a pipeline without running it")
     lp.add_argument("file")
+    _add_var_option(lp)
 
     wp = sub.add_parser("watch",    help="Re-run pipeline on file changes")
     _add_run_options(wp)
@@ -76,6 +81,7 @@ def main(argv=None):
 
     vp = sub.add_parser("validate", help="Parse-check without executing")
     vp.add_argument("file")
+    _add_var_option(vp)
 
     cp = sub.add_parser("commands", help="List available DSL commands")
     cp.add_argument("--source", metavar="SRC")
@@ -112,9 +118,9 @@ def main(argv=None):
     handlers = {
         "run":      lambda: _cmd_run(args, force_batch=False),
         "batch":    lambda: _cmd_run(args, force_batch=True),
-        "lint":     lambda: _cmd_lint(args.file),
+        "lint":     lambda: _cmd_lint(args.file, args.var),
         "watch":    lambda: _cmd_watch(args),
-        "validate": lambda: _cmd_validate(args.file),
+        "validate": lambda: _cmd_validate(args.file, args.var),
         "link":     lambda: _cmd_link(args.file, args.map),
         "commands": lambda: _cmd_list_commands(args.source, args.category),
         "plugins":  lambda: _cmd_plugins(args.trust_plugins),
@@ -154,7 +160,7 @@ def parse_var(spec: str):
 
 
 def _variables(cfg, var_specs) -> dict:
-    variables = dict(getattr(cfg, "variables", {}) or {})
+    variables = dict(cfg.variables)
     for spec in var_specs or []:
         k, v = parse_var(spec)
         variables[k] = v
@@ -227,14 +233,16 @@ def _cmd_run(args, force_batch: bool = False):
     _success("Pipeline completed successfully.")
 
 
-def _cmd_lint(filepath):
+def _cmd_lint(filepath, var_specs=()):
     from pixlang import registry
+    from pixlang.config import load_config
     from pixlang.linter import Linter
 
     S = Style()
     path     = _require_file(filepath)
     pipeline = _parse_or_die(path)
-    linter   = Linter(registry)
+    variables = _variables(load_config(path.resolve()), var_specs)
+    linter   = Linter(registry, config_vars=variables)
     diags    = linter.lint(pipeline, path=path)
 
     if not diags:
@@ -281,8 +289,10 @@ def _cmd_watch(args):
 
 # ── validate ──────────────────────────────────────────────────────────────────
 
-def _cmd_validate(filepath):
+def _cmd_validate(filepath, var_specs=()):
     path     = _require_file(filepath)
+    for spec in var_specs:
+        parse_var(spec)           # same spec check as the other commands
     pipeline = _parse_or_die(path)
     print(f"  Statements parsed: {len(pipeline.commands)}\n")
     _dump_stmts(pipeline.commands, indent=4)
