@@ -488,6 +488,12 @@ class _Parser:
         msg = ""
         if self._is("STRING"):
             msg = decode_string(self._advance().value)
+        stray = self._peek()
+        if stray is not None and stray.type != "NEWLINE":
+            raise self._error(
+                f"the ASSERT message must be a single string literal, got "
+                f"{self._describe(stray)}; put values in with interpolation: "
+                f"\"slot $i has mean $mean:.2f\"", stray)
         self._end_of_statement("ASSERT")
         node = AssertStmt(message=msg, cond=cond, cond_text=_text(cond), op="",
                           **self._loc(kw))

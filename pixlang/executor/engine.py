@@ -34,6 +34,7 @@ import numpy as np
 
 from pixlang.commands.builtin import _unwrap, _wrap
 from pixlang.commands.registry import CommandRegistry
+from pixlang.executor.interpolation import interpolate
 from pixlang.parser.ast_nodes import (
     AllocStmt,
     AssertStmt,
@@ -89,6 +90,10 @@ IMAGE_SUBJECTS = ("width", "height", "channels", "depth", "min", "max",
 # Properties of the current image that are not plain array attributes; reachable
 # as `_.min`, `_.contour_count` ... in any expression
 IMAGE_ONLY_SUBJECTS = ("min", "max", "contour_count")
+
+# Significant digits shown for floats in diagnostics; hides binary noise
+# such as 338.99999999999994
+DISPLAY_DIGITS = 6
 
 # Kept for backwards compatibility (v0.3 imported these from here)
 _OPS = {op: (lambda o: (lambda a, b: memory.compare(o, a, b)))(op)
@@ -740,7 +745,8 @@ class Executor:
             print(f"  {tick}  ASSERT {desc}{got}  {'OK' if passed else 'FAIL'}")
 
         if not passed:
-            custom = f" — {stmt.message}" if stmt.message else ""
+            message = interpolate(stmt.message, self._lookup, _short)
+            custom = f" — {message}" if message else ""
             got = f", but got {_short(actual)}" if actual is not None else ""
             raise PixAssertionError(
                 f"[ASSERT] Pipeline assertion failed (line {stmt.line}): "
@@ -1208,6 +1214,8 @@ def _short(v: Any) -> str:
         return _short(v["_image"])
     if isinstance(v, bool):
         return "true" if v else "false"
+    if isinstance(v, (float, np.floating)):
+        return f"{v:.{DISPLAY_DIGITS}g}"
     return str(v)
 
 

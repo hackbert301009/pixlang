@@ -153,6 +153,28 @@ warns (PX013) when a `SET` value is a bare property or command name.
 `ASSERT` keeps the v0.4 forms: `ASSERT width == 640 "msg"` where `width` may
 be a variable or an image property.
 
+### ASSERT messages
+
+The message is a single string literal. It may refer to variables, so a failure
+inside a loop can say which iteration failed:
+
+```
+ASSERT $slot_mean > $dark_min "slot $i empty (mean $slot_mean:.2f)"
+```
+
+| Written | Result |
+|---------|--------|
+| `$name`, `${name}` | the variable's value (floats keep 6 significant digits, bools print `true` / `false`) |
+| `$name:.2f`, `${name:03d}` | Python format spec; must end in a type letter, falls back to plain text if the value cannot take it |
+| `$$` | a literal `$` |
+
+A `$` not followed by a name stays as written, and so does a `$name` that is
+not defined (the failure itself is still reported). Use `${i}` before text
+that could be read as a format spec: `"slot ${i}:empty"`. A message without
+`$` is used as is. Interpolation applies to `ASSERT` messages only; command
+arguments are not interpolated. The "but got" part of a failure shows floats
+with 6 significant digits (`got 339`, not `got 338.99999999999994`).
+
 `ROI` clamps to the image, converts gray/colour mismatches, resizes a body
 result back to the region, and merges metadata exactly as in v0.4.
 
