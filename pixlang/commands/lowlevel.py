@@ -43,6 +43,7 @@ from .builtin import (
     _value_max,
     _wrap,
 )
+from .limits import check_array
 
 CATEGORIES.update({
     "CONVERT_DEPTH": "Depth", "CONVERT_SCALE": "Depth", "BYTESWAP": "Depth",
@@ -272,6 +273,7 @@ def register_v05(r):
         if key not in _DEPTHS:
             raise ValueError(f"[CONVERT_DEPTH] unknown depth {depth!r}. Valid: u8, u16, f32, f64")
         target = np.dtype(_DEPTHS[key])
+        check_array("CONVERT_DEPTH", *img.shape[:2], _channels(img), target.itemsize)
         f = img.astype(np.float64)
         if scale is not None:
             return _cast(f * float(scale), target)
@@ -426,7 +428,7 @@ def register_v05(r):
             return _cast(np.floor(np.clip(c / top, 0, 1) * (n - 1e-9)) * top / n, c.dtype)
         return _apply_lut_color(img, apply)
 
-    @_command(r, "LUT")
+    @_command(r, "LUT", paths={"path": "read"})
     def cmd_lut(image, path: str):
         """LUT "table.npy"  — map pixel values through a NumPy lookup table.
 
@@ -541,7 +543,7 @@ def register_v05(r):
 
     # ── Raw / embedded ────────────────────────────────────────────────────────
 
-    @_command(r, "SAVE_RAW")
+    @_command(r, "SAVE_RAW", paths={"path": "write"})
     def cmd_save_raw(image, path: str, fmt: str = "rgb888", endian: str = "le"):
         """SAVE_RAW "file.bin" [gray8|rgb565|rgb888|bgr888|rgba8888] [le|be]  — headerless dump.
 
@@ -578,9 +580,9 @@ def register_v05(r):
                 f"[LOAD_RAW] {path!r} has {len(data)} bytes, but {w}x{h} {f} needs {need}"
             )
         return _decode_raw(data, w, h, f, _endian("LOAD_RAW", endian))
-    _command(r, "LOAD_RAW", fresh=True)(_load_raw)
+    _command(r, "LOAD_RAW", fresh=True, paths={"path": "read"})(_load_raw)
 
-    @_command(r, "EXPORT_C_ARRAY")
+    @_command(r, "EXPORT_C_ARRAY", paths={"path": "write"})
     def cmd_export_c_array(image, path: str, name: str, fmt: str = None):
         """EXPORT_C_ARRAY "file.h" <name> [fmt]  — write a C header for microcontrollers.
 
@@ -885,6 +887,8 @@ def register_v05(r):
         if m not in _BORDERS:
             raise ValueError(f"[PAD] unknown mode {mode!r}. Valid: {', '.join(_BORDERS)}")
         img, _ = _unwrap(image)
+        check_array("PAD", img.shape[0] + top + bottom, img.shape[1] + left + right,
+                    _channels(img), img.itemsize)
         return _cv("PAD", img, cv2.copyMakeBorder, img, top, bottom, left, right,
                    _BORDERS[m], value=[float(value)] * 4)
 
@@ -909,6 +913,7 @@ def register_v05(r):
         if w <= 0 or h <= 0:
             raise ValueError(f"[WARP_PERSPECTIVE] w and h must be > 0, got {w}x{h}")
         img, _ = _unwrap(image)
+        check_array("WARP_PERSPECTIVE", h, w, _channels(img), img.itemsize)
         src = np.array([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], np.float32)
         dst = np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], np.float32)
         M = cv2.getPerspectiveTransform(src, dst)

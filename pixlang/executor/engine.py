@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 import numpy as np
 
 from pixlang.commands.builtin import _unwrap, _wrap
+from pixlang.commands.confine import PathConfinementError, PathGuard
+from pixlang.commands.limits import DEFAULT_LIMITS, ArrayLimits, check_array, enforce
 from pixlang.commands.registry import CommandRegistry
 from pixlang.parser.ast_nodes import (
     AllocStmt,
@@ -138,12 +140,16 @@ class Executor:
         plugin_loader: Optional[PluginLoader] = None,
         pipeline_path: Optional[Path] = None,
         max_loop_iterations: Optional[int] = None,
+        path_guard: Optional[PathGuard] = None,
+        array_limits: ArrayLimits = DEFAULT_LIMITS,
     ):
         self.registry      = registry
         self.verbose       = verbose
         self.plugin_loader = plugin_loader
         self.pipeline_path = Path(pipeline_path) if pipeline_path else None
         self.max_loop_iterations = max_loop_iterations
+        self.path_guard = path_guard
+        self.array_limits = array_limits
 
         # Shared mutable state threaded through the entire pipeline
         self.context: Dict[str, Any] = {
@@ -158,6 +164,8 @@ class Executor:
             "buffer_freed": {},  # slot -> line where it was FREEd
         }
         self.context["buffers"] = self.context["checkpoints"]
+        if path_guard is not None:
+            self.context["path_guard"] = path_guard   # for commands that build paths at run time
 
         self.image: Any = None
         self.program: Optional[LinkedProgram] = None
@@ -188,7 +196,7 @@ class Executor:
         self._load_plugins()
         total_start = time.perf_counter()
 
-        with self._deep_recursion():
+        with self._deep_recursion(), enforce(self.array_limits):
             self._prepare(pipeline)
             self.image = None
             self._run_program()
@@ -222,7 +230,7 @@ class Executor:
         if self._linker is None:
             from pixlang.linker import Linker
             paths = cfg.link_search_paths if cfg else []
-            self._linker = Linker(self.registry, paths)
+            self._linker = Linker(self.registry, paths, guard=self.path_guard)
         return self._linker
 
     def _run_program(self) -> None:
@@ -566,6 +574,7 @@ class Executor:
         resolved_args = [self._resolve(a) for a in cmd.args]
         t0 = time.perf_counter()
         try:
+            resolved_args = self._confine_args(cmd.name, resolved_args)
             self.image = self.registry.invoke(cmd.name, self.image, resolved_args, self.context)
         except NameError as exc:
             if cmd.name.upper() not in self.registry:
@@ -587,6 +596,27 @@ class Executor:
             args_str   = " ".join(_short(a) for a in resolved_args)
             print(f"  {'✓':2} {cmd.name:<24} {args_str:<20} "
                   f"{shape_str:<18} {elapsed_ms:6.1f} ms")
+
+    def _confine_args(self, name: str, args: List[Any]) -> List[Any]:
+        """Run the command's declared path arguments through the path guard."""
+        guard = self.path_guard
+        if guard is None:
+            return args
+        info = self.registry.get_info(name)
+        if info.undeclared_paths:
+            raise PathConfinementError(
+                f"[{info.name}] parameter '{info.undeclared_paths[0]}' looks like a path but "
+                f"the command does not declare it with paths=...; refused for {guard.area}")
+        args = list(args)
+        for index, mode, default in info.path_slots():
+            if index == len(args) and isinstance(default, str):
+                args.append(default)     # an omitted optional path is still a path
+            if index < len(args):
+                try:
+                    args[index] = guard.resolve(str(args[index]), mode)
+                except PathConfinementError as exc:
+                    raise PathConfinementError(f"[{info.name}] {exc}") from None
+        return args
 
     def _command_error(self, cmd: Command, args: List[Any], exc: Exception) -> PixRuntimeError:
         where = f"line {cmd.line}"
@@ -666,7 +696,8 @@ class Executor:
         if stmt.file:
             base = Path(stmt.file).parent
         else:
-            base = self.pipeline_path.parent if self.pipeline_path else Path(".")
+            base = self.pipeline_path.parent if self.pipeline_path else (
+                self.path_guard.base_dir if self.path_guard else Path("."))
         inc_path = (base / stmt.path).resolve()
         key = str(inc_path)
 
@@ -809,6 +840,7 @@ class Executor:
         if w <= 0 or h <= 0 or c <= 0:
             raise self._error(f"[ALLOC] dimensions must be > 0, got {w}×{h}×{c}", stmt)
         dt = memory.dtype_of(stmt.dtype)
+        check_array("ALLOC", h, w, c, dt.itemsize)
         fill = self._plain(self._resolve(stmt.fill))
         shape = (h, w) if c == 1 else (h, w, c)
         arr = np.zeros(shape, dtype=dt)

@@ -23,9 +23,12 @@ import {
   initLayout, showSide, showBottom, toggleBottom, toggleFlowPane, showRightTab, setView,
   rovingTabs, listKeys, closeSidebarIfOverlay,
 } from "./layout.js";
+import { watchConnection } from "./connection.js";
 import {
   api, store, $, $$, h, icon, debounce, localizeKbd, catVar, fmtMs, toast, isMac,
 } from "./util.js";
+
+const PARSE_TIMEOUT_MS = 10_000;
 
 // ── State ────────────────────────────────────────────────────────────────────
 const S = {
@@ -41,9 +44,9 @@ const S = {
   lastRun: null,          // last /api/run response + codeAtRun
   running: false,
   pending: false,
-  auto: store.get("autoRun", false),
+  auto: store.getBool("autoRun", false),
   tree: [],
-  flowScale: store.get("flowScale", 1),
+  flowScale: store.getNumber("flowScale", 1, { min: 0.5, max: 2 }),
 };
 
 let view = null;
@@ -475,7 +478,7 @@ const scheduleParse = (() => {
       const my = ++seq;
       const code = view.state.doc.toString();
       let d;
-      try { d = await api("/api/parse", { code }); } catch { return; }
+      try { d = await api("/api/parse", { code }, { timeout: PARSE_TIMEOUT_MS }); } catch { return; }
       if (my !== seq) return;
       if (d.error) {
         $("#flow-sub").textContent = "Parse error";
@@ -841,6 +844,17 @@ function wire() {
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
+/** The saved session, trusted only as far as its shape goes. */
+function savedSession() {
+  const raw = store.getObject("session");
+  const f = raw.file;
+  const isStr = (v) => typeof v === "string" && v.length > 0;
+  const valid = f && typeof f === "object" && isStr(f.name) && (
+    f.kind === "untitled" || (f.kind === "workspace" && isStr(f.path))
+    || (f.kind === "example" && isStr(f.example)));
+  return { file: valid ? f : null, draft: typeof raw.draft === "string" ? raw.draft : null };
+}
+
 async function boot() {
   localizeKbd();
   syncThemeIcon();
@@ -857,7 +871,7 @@ async function boot() {
   $("#sb-commands").textContent = `${S.lang.commands.length} commands`;
 
   // Restore session (file + unsaved draft)
-  const sess = store.get("session", null);
+  const sess = savedSession();
   let file = { kind: "untitled", path: null, name: "untitled.pxl" };
   let code = null;
   S.template = (await api("/api/template", {}).catch(() => ({ code: "" }))).code;
@@ -899,10 +913,11 @@ async function boot() {
   createEditor("");
   dbg.init();
   wire();
-  showSide(store.get("ui", {})?.side || "files", { toggle: false });
+  watchConnection({ onRecovered: () => { forceLinting(view); scheduleParse(0); loadFiles(); } });
+  showSide(store.getObject("ui").side, { toggle: false });
   if (window.innerWidth < 1024) { $("#app").dataset.sidebar = "closed"; showSide.call(null, "files", { toggle: false }); $("#app").dataset.sidebar = "closed"; }
-  showBottom(store.get("bottomTab", "problems"));
-  if ((store.get("ui", {}) || {}).bottom === "collapsed") toggleBottom(true);
+  showBottom(store.getString("bottomTab", "problems"));
+  if (store.getObject("ui").bottom === "collapsed") toggleBottom(true);
   setFile(file, code);
   if (sess && sess.draft && sess.file && JSON.stringify(sess.file) === JSON.stringify(file) && sess.draft !== code) {
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: sess.draft } });
