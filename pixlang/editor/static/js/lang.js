@@ -12,6 +12,8 @@ import {
 import { api, h, catVar } from "./util.js";
 
 // Keywords that open / close / redirect control flow get the control colour.
+const LINT_TIMEOUT_MS = 10_000;
+
 const CONTROL = new Set([
   "IF", "ELIF", "ELSE", "ENDIF", "WHILE", "FOR", "TO", "STEP", "BREAK", "CONTINUE",
   "REPEAT", "END", "RETURN", "FUNC", "ENDFUNC", "ROI", "ROI_RESET", "WITH", "ENDWITH",
@@ -285,11 +287,11 @@ export function pixlangLinter({ getRuntime, onResult }) {
     linter(async (view) => {
       const doc = view.state.doc;
       const code = doc.toString();
-      let issues = [];
+      let issues;
       try {
-        issues = (await api("/api/lint", { code })).issues || [];
-      } catch (e) {
-        issues = [];
+        issues = (await api("/api/lint", { code }, { timeout: LINT_TIMEOUT_MS })).issues || [];
+      } catch {
+        return [];   // the connection banner says why; keep the Problems panel as it was
       }
       if (view.state.doc.toString() !== code) return []; // stale, a newer pass follows
       const problems = issues.map(i => ({ ...i, source: "lint" }));

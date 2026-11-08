@@ -21,7 +21,7 @@ export function createPreview() {
   const modes = $$("#preview-modes [data-mode]");
 
   const st = {
-    mode: store.get("previewMode", "output"),
+    mode: store.getString("previewMode", "output", modes.map((b) => b.dataset.mode)),
     result: null,
     stepKey: "final",
     scale: 1, tx: 0, ty: 0, fit: true,
