@@ -89,7 +89,7 @@ BLUR -1                      # bare literal; no expression parsing
 | 2     | `or`                                       | left  |
 | 3     | `and`                                      | left  |
 | 4     | `not`                                      | prefix|
-| 5     | `==  !=  <  >  <=  >=`                     | left  |
+| 5     | `==  !=  <  >  <=  >=`                     | chained (see below) |
 | 6     | `\|`                                       | left  |
 | 7     | `^`                                        | left  |
 | 8     | `&`                                        | left  |
@@ -102,7 +102,23 @@ BLUR -1                      # bare literal; no expression parsing
 `and` / `or` short-circuit and return the deciding operand. `/` is true
 division, `//` floor division. `+` concatenates when either side is a string.
 Comparisons between a numeric string and a number coerce (`"120" > 100` is
-true, kept from v0.3); other mismatches raise an error.
+true, kept from v0.3); other mismatches raise an error. A bool and a number
+can be compared with `==` / `!=` only; `true < 10` is an error so an
+accidental `(a < b) < c` can never pass silently.
+
+### Chained comparisons
+
+Comparisons at level 5 chain like Python: `a < b <= c != d` means
+`a < b and b <= c and c != d`, with every operand evaluated at most once and
+evaluation stopping at the first false link. Any mix of the six operators is
+allowed, in `SET`, `IF` / `ELIF` / `WHILE` / `ASSERT` and inside parenthesised
+command arguments. A parenthesised comparison is a value, not part of the
+chain: `(a < b) < c` compares a bool with `c` and is an error.
+
+```
+ASSERT 0 < $n < 10 "n out of range"
+IF 0 <= $x < $width
+```
 
 ### Bare identifiers (legacy)
 
@@ -112,6 +128,12 @@ side of an `IF` comparison must be defined (error otherwise); in `ASSERT` it
 falls back to the image properties `width height channels depth min max
 contour_count ndim`. The linter warns (PX012) when such a word looks like a
 typo of a variable.
+
+Outside `ASSERT` a bare `contour_count` or `width` is just the string
+`"contour_count"`, so `SET n contour_count` stores text. Read image
+properties with `_.width`, `_.height`, `_.channels`, `_.depth`, `_.ndim`,
+`_.min`, `_.max` and `_.contour_count` (`SET n _.contour_count`); the linter
+warns (PX013) when a `SET` value is a bare property or command name.
 
 ## 4. Statements
 
@@ -130,6 +152,28 @@ typo of a variable.
 
 `ASSERT` keeps the v0.4 forms: `ASSERT width == 640 "msg"` where `width` may
 be a variable or an image property.
+
+### ASSERT messages
+
+The message is a single string literal. It may refer to variables, so a failure
+inside a loop can say which iteration failed:
+
+```
+ASSERT $slot_mean > $dark_min "slot $i empty (mean $slot_mean:.2f)"
+```
+
+| Written | Result |
+|---------|--------|
+| `$name`, `${name}` | the variable's value (floats keep 6 significant digits, bools print `true` / `false`) |
+| `$name:.2f`, `${name:03d}` | Python format spec; must end in a type letter, falls back to plain text if the value cannot take it |
+| `$$` | a literal `$` |
+
+A `$` not followed by a name stays as written, and so does a `$name` that is
+not defined (the failure itself is still reported). Use `${i}` before text
+that could be read as a format spec: `"slot ${i}:empty"`. A message without
+`$` is used as is. Interpolation applies to `ASSERT` messages only; command
+arguments are not interpolated. The "but got" part of a failure shows floats
+with 6 significant digits (`got 339`, not `got 338.99999999999994`).
 
 `ROI` clamps to the image, converts gray/colour mismatches, resizes a body
 result back to the region, and merges metadata exactly as in v0.4.
@@ -389,13 +433,18 @@ a.pxl → b.pxl → a.pxl`, `unterminated string literal`.
 
 ## 11. Linter
 
-Rules PX001-PX012 plus the linker's LNK codes (see `pixlang/linter/engine.py`
+Rules PX001-PX013 plus the linker's LNK codes (see `pixlang/linter/engine.py`
 for the list). Highlights: blocks and included files are analysed; PX001
 accepts `LOAD_GLOB`/`INCLUDE`/`USE` starts; PX005 is order-aware and knows
 variables from `pixlang.toml`; PX008 flags `REPEAT 0` as a warning; PX012
 warns when a bare word silently becomes a string but resembles a defined
-variable; a crashing rule is reported as PX000 instead of being hidden.
-`[lint] ignore = [...]` is honoured when a file path is known
+variable; PX013 warns when a `SET` value is a bare image property or command
+name; a crashing rule is reported as PX000 instead of being hidden.
+`pixlang run` and `pixlang batch` apply the PX011 and linker error checks
+before executing (after loading plugins); `--no-preflight` skips them.
+`pixlang lint` and `pixlang validate` accept `--var key=value` (repeatable, as
+for `run`); PX005 treats those variables and the `[variables]` of
+`pixlang.toml` as defined. `[lint] ignore = [...]` is honoured when a file path is known
 (`Linter.lint(pipeline, path=...)` / `lint_file`).
 
 ## 12. Configuration (`pixlang.toml`)
@@ -434,6 +483,7 @@ arg        := INT | FLOAT | STRING | VAR | word | true | false | '(' expr ')'
 target     := word ['[' index (',' index)* ']'] | '*' unary
 index      := expr | [expr] ':' [expr] [':' [expr]]
 expr       := Pratt expression; precedence table in section 3
+comparison := operand (('==' | '!=' | '<' | '>' | '<=' | '>=') operand)+   # chained
 ```
 
 ## 14. Compatibility with v0.4

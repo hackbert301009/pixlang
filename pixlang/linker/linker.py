@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from pixlang.commands.confine import PathConfinementError
 from pixlang.parser import parse
 from pixlang.parser.ast_nodes import (
     Call,
@@ -181,9 +182,11 @@ class Linker:
         search_paths: extra module directories (``[link] search_paths``)
     """
 
-    def __init__(self, registry=None, search_paths: Optional[Sequence[Path]] = None):
+    def __init__(self, registry=None, search_paths: Optional[Sequence[Path]] = None,
+                 guard=None):
         self.registry = registry
         self.search_paths = [Path(p) for p in (search_paths or [])]
+        self.guard = guard      # optional pixlang.commands.confine.PathGuard
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -342,12 +345,12 @@ class Linker:
         elif unit.path:
             bases.append(unit.path.parent)
         else:
-            bases.append(Path("."))
+            bases.append(self.guard.base_dir if self.guard else Path("."))
         bases.extend(self.search_paths)
         for base in bases:
             cand = (base / imp.path).resolve()
             if cand.exists():
-                return cand
+                return self.guard.check_module(cand) if self.guard else cand
         return None
 
     def _link_unit(self, program: LinkedProgram, unit: ObjectUnit, stack: List[str],
@@ -373,7 +376,11 @@ class Linker:
             unit.globals = []
 
         for imp in unit.imports:
-            target = self._resolve_module(imp, unit)
+            try:
+                target = self._resolve_module(imp, unit)
+            except PathConfinementError as exc:
+                self._error("LNK015", f"[IMPORT] {exc}", imp)
+                continue
             if target is None:
                 where = ", ".join(str(p) for p in self.search_paths)
                 self._error("LNK001",

@@ -236,6 +236,10 @@ def compare(op: str, a: Any, b: Any) -> Any:
         if isinstance(ca, str) != isinstance(cb, str):
             ca, cb = str(a), str(b)
         return fn(ca, cb)
+    if _is_bool(ca) != _is_bool(cb) and not isinstance(ca, str) and not isinstance(cb, str):
+        raise TypeError(
+            f"cannot order a bool and a number with '{op}': got {type_name(a)} {a!r} "
+            f"and {type_name(b)} {b!r}; compare with == or convert explicitly")
     try:
         return fn(ca, cb)
     except TypeError:
@@ -311,6 +315,10 @@ def truth(v: Any) -> bool:
     if isinstance(v, Ref):
         return True
     return bool(v)
+
+
+def _is_bool(v: Any) -> bool:
+    return isinstance(v, (bool, np.bool_))
 
 
 def _is_int(v: Any) -> bool:

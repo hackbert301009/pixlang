@@ -27,7 +27,7 @@ function applySize(key, value) {
 }
 
 export function initLayout({ onResize } = {}) {
-  const saved = store.get("layout", {}) || {};
+  const saved = store.getObject("layout");
   for (const key of Object.keys(SIZES)) {
     if (typeof saved[key] === "number") applySize(key, saved[key]);
   }
@@ -38,7 +38,7 @@ export function initLayout({ onResize } = {}) {
     if (!s) continue;
     const commit = (v) => {
       applySize(key, v);
-      const cur = store.get("layout", {}) || {};
+      const cur = store.getObject("layout");
       cur[key] = v;
       store.set("layout", cur);
       onResize && onResize();
@@ -83,7 +83,7 @@ export function initLayout({ onResize } = {}) {
       e.preventDefault();
       const c = containerFor(key).getBoundingClientRect();
       const total = s.axis === "x" ? c.width : c.height;
-      const cur = (store.get("layout", {}) || {})[key] ?? s.def;
+      const cur = (store.getObject("layout"))[key] ?? s.def;
       let px = s.unit === "frac" ? cur * total : cur;
       let delta = (e.key === keys[1] ? 1 : -1) * (e.shiftKey ? 64 : 16);
       if (s.invert) delta = -delta;
@@ -95,7 +95,7 @@ export function initLayout({ onResize } = {}) {
   }
 
   // Bottom panel collapse state, flow pane visibility
-  const ui = store.get("ui", {}) || {};
+  const ui = store.getObject("ui");
   if (ui.bottom === "collapsed") app().dataset.bottom = "collapsed";
   if (ui.flow === "hidden") app().dataset.flow = "hidden";
   if (ui.sidebar === "closed" || window.innerWidth < 1024) app().dataset.sidebar = "closed";
@@ -103,13 +103,14 @@ export function initLayout({ onResize } = {}) {
 }
 
 function saveUi(patch) {
-  const ui = store.get("ui", {}) || {};
+  const ui = store.getObject("ui");
   Object.assign(ui, patch);
   store.set("ui", ui);
 }
 
 // ── Sidebar views ───────────────────────────────────────────────────────────
 export function showSide(name, { toggle = true } = {}) {
+  if (typeof name !== "string" || !document.getElementById("side-" + name)) name = "files";   // saved state may be stale
   const a = app();
   const current = a.dataset.side || "files";
   const open = a.dataset.sidebar !== "closed";
@@ -155,6 +156,7 @@ export function toggleFlowPane(force) {
 
 // ── Bottom tabs ─────────────────────────────────────────────────────────────
 export function showBottom(name) {
+  if (!document.getElementById("bp-" + name)) name = "problems";
   for (const t of $$(".bottom-panel .tab")) {
     const on = t.dataset.bottom === name;
     t.setAttribute("aria-selected", String(on));

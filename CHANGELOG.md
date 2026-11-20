@@ -8,9 +8,32 @@ Format: [Semantic Versioning](https://semver.org)
 ### Added
 - **Editor step debugger.** Breakpoints (gutter click / `F9`, optional condition as a PixLang expression), Continue / Step Over / Step Into / Step Out / Pause / Stop (`F8`, `F10`, `F11`, `Shift+F11`, `F6`, `Shift+F5`; start with `Ctrl/Cmd+Shift+D`). A Debug side view shows the call stack, typed variables, user Watch expressions (read-only evaluation: assignments, commands and FUNC calls are rejected), buffers with change-aware thumbnails and breakpoints; the current line, preview image, flow diagram, Output and Timing follow each pause. Sessions run under the normal sandbox, count only running time towards the run timeout and are stopped after 10 idle minutes.
 - Editor API: `POST /api/debug/start`, `GET /api/debug/<id>/state?wait=<seq>&timeout=<s>` (long-poll), `POST /api/debug/<id>/{control,breakpoints,watch,evaluate}`, `POST /api/debug/stop`. The final state carries the same payload as `/api/run`.
+- `pixlang run` / `batch` check the pipeline before executing anything: unknown commands (with did-you-mean) and link errors are reported as `file:line:col` up front instead of after a slow `LOAD`. Plugins are loaded first, honouring the trust model. `--no-preflight` skips the check.
+
+- `_.contour_count`, `_.min` and `_.max` read image properties in any expression (`SET n _.contour_count`).
+- Linter rule PX013: a `SET` value that is a bare image property (`SET n contour_count`) or command name is stored as a string; the warning points at `_.contour_count` / quoting.
+
+- `ASSERT` messages can interpolate variables: `ASSERT $m > $min "slot $i empty (mean $m:.2f)"` (`$name`, `${name}`, `$name:.2f`, `$$`).
+
+### Security
+- **The editor confines pipelines to its workspace.** Commands declare their path parameters with `registry.register(..., paths={"path": "read" | "write" | "glob" | "template"})`; the editor's executor passes every declared path through a `PathGuard` (`pixlang.commands.confine`), which refuses absolute paths outside the workspace, `..` and symlink escapes, and anything that is not a regular file (FIFOs, devices). `IMPORT`/`FROM` are checked the same way, `.pxl` files only. The bundled examples stay readable. A plugin command whose parameter is named like a path (`path`, `file`, `template`, ...) but is not declared is refused in the editor.
+- A per-image size limit (64 Mpx / 512 MiB, lower in the editor) applies to `ALLOC`, `ZEROS`, `RESIZE`, `RESIZE_PERCENT`, `ROTATE`, `PAD`, `WARP_PERSPECTIVE`, `CONVERT_DEPTH`, `LOAD` and `LOAD_GLOB`; PNG, JPEG, GIF and BMP headers are checked before decoding. `Executor(array_limits=ArrayLimits(...))` changes it.
+
+### Fixed
+- **Chained comparisons now work.** `ASSERT 0 < $n < 10` used to parse as `(0 < n) < 10` and always passed; it now means `0 < n and n < 10` with the middle operand evaluated once. Comparing a bool with a number using `<`, `>`, `<=` or `>=` is now an error (`==` / `!=` still work).
+
+- `--verbose` no longer prints a Python traceback for a failed `ASSERT`, a runtime error, a syntax error or a link error; only unexpected internal exceptions get one.
+
+- `pixlang lint` reported PX005 for variables supplied with `--var`; `lint` and `validate` now accept `--var key=value` and the linter treats those variables as defined.
+
+- A failed `ASSERT` shows floats with 6 significant digits (`but got 339`, not `338.99999999999994`).
+- A non-literal ASSERT message (`ASSERT x == 1 "a" + $i`) now says the message must be a string literal and points at interpolation instead of the generic "each statement must end" error.
+- A run that ignores its time limit is abandoned instead of blocking every later run; the editor no longer changes the process working directory or redirects `sys.stdout` for all threads.
+- Editor: `/api/files` survives symlinks that leave the workspace, non-ASCII token headers, deeply nested input (400), malformed JSON (400) and oversized chunked bodies (413); `/api/language` marks parameters that default to `None` as optional; errors inside imported modules are marked at the call site; a mangled `pixlang.*` browser-storage key no longer stops the editor from loading; the UI reports an unreachable server or expired session.
 
 ### Changed
 - `pixlang.editor.server.app` is now created on first access instead of at import time.
+- The editor keeps display-sized copies of the last three runs' images instead of full-size arrays.
 
 ## [0.5.0] — Hardware-near language, linker & new editor
 

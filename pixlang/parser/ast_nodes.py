@@ -28,7 +28,7 @@ Statements
   FreeStmt     FREE a, b
 
 Expressions
-  Literal, VarRef ($x), BareIdent (x), Unary, Binary, Index, Slice, Attr,
+  Literal, VarRef ($x), BareIdent (x), Unary, Binary, Chain, Index, Slice, Attr,
   Call, AsType (expr AS u32)
 """
 from __future__ import annotations
@@ -132,6 +132,19 @@ class Binary(Expr):
 
     def to_source(self) -> str:
         return f"({expr_source(self.left)} {self.op} {expr_source(self.right)})"
+
+
+@dataclass
+class Chain(Expr):
+    """a < b <= c ...: comparisons joined pairwise, each middle operand evaluated once."""
+    operands: List[Any] = field(default_factory=list)
+    ops: List[str] = field(default_factory=list)
+
+    def to_source(self) -> str:
+        parts = [expr_source(self.operands[0])]
+        for op, operand in zip(self.ops, self.operands[1:]):
+            parts += [op, expr_source(operand)]
+        return "(" + " ".join(parts) + ")"
 
 
 @dataclass
@@ -438,6 +451,8 @@ def walk_expr(value: Any) -> Iterator[Any]:
         elif isinstance(value, Binary):
             yield from walk_expr(value.left)
             yield from walk_expr(value.right)
+        elif isinstance(value, Chain):
+            yield from walk_expr(value.operands)
         elif isinstance(value, Index):
             yield from walk_expr(value.target)
             for i in value.indices:

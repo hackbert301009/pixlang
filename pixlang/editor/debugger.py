@@ -31,9 +31,7 @@ change interpreter state.
 from __future__ import annotations
 
 import contextlib
-import os
 import re
-import sys
 import threading
 import time
 import uuid
@@ -44,6 +42,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from pixlang.commands.confine import PathGuard
 from pixlang.executor import memory
 from pixlang.executor.engine import _short
 from pixlang.parser import parse_expression
@@ -60,13 +59,14 @@ from pixlang.parser.ast_nodes import (
 )
 from pixlang.parser.errors import PixSyntaxError
 
+from .rungate import MAX_STDOUT_CHARS, RunGate, RunTicket, capture_thread_stdout
 from .server import (
+    EDITOR_LIMITS,
     THUMB_MAX_SIDE,
     _as_array,
     _CapturingExecutor,
     _encode_png,
     _image_meta,
-    _is_within,
     _pipeline_body,
     _to_display,
     build_run_payload,
@@ -84,7 +84,6 @@ MAX_LINE = 1_000_000
 DEBUG_IMAGE_MAX_SIDE = 1200         # pause-time images are downscaled to this
 MAX_BUFFERS = 24
 MAX_CHILDREN = 16
-MAX_STDOUT_CHARS = 256 * 1024
 IMAGE_CACHE_ENTRIES = 32
 KEPT_SESSIONS = 2
 EVAL_TIMEOUT_S = 2.0
@@ -424,31 +423,9 @@ def normalize_watch(raw: Any) -> list[str]:
     return out
 
 
-class _ThreadStdout:
-    """sys.stdout replacement: output of the worker thread goes to the
-    session buffer, everything else still reaches the real stdout."""
-
-    def __init__(self, buf: Any, tid: int, fallback: Any) -> None:
-        self._buf, self._tid, self._fallback = buf, tid, fallback
-
-    def write(self, s: str) -> int:
-        if threading.get_ident() == self._tid:
-            if self._buf.tell() < MAX_STDOUT_CHARS:
-                self._buf.write(s)
-            return len(s)
-        return self._fallback.write(s)
-
-    def flush(self) -> None:
-        with contextlib.suppress(Exception):
-            self._fallback.flush()
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._fallback, name)
-
-
 class DebugSession:
     def __init__(self, manager: DebugManager, *, code: str, pipeline: Any,
-                 pipeline_path: Path | None, base_dir: Path,
+                 pipeline_path: Path | None,
                  breakpoints: list[tuple[int, str | None]], watch: list[str],
                  stop_on_entry: bool) -> None:
         import io
@@ -457,12 +434,12 @@ class DebugSession:
         self.code = code
         self.pipeline = pipeline
         self.pipeline_path = pipeline_path
-        self.base_dir = base_dir
         self.cond = threading.Condition()
         self.cancel = threading.Event()
         self.images = _ImageCache()
         self.stdout_buf = io.StringIO()
         self.thread: threading.Thread | None = None
+        self.ticket: RunTicket | None = None
         self.executor: DebugExecutor | None = None
         self.loader: Any = None
 
@@ -548,8 +525,9 @@ class DebugSession:
 
     # ── thread lifecycle ───────────────────────────────────────────────────
 
-    def start_thread(self, executor: DebugExecutor, loader: Any) -> None:
+    def start_thread(self, executor: DebugExecutor, loader: Any, ticket: RunTicket) -> None:
         self.executor = executor
+        self.ticket = ticket
         self.loader = loader
         self.thread = threading.Thread(target=self._work, name=f"pixlang-debug-{self.id[:8]}",
                                        daemon=True)
@@ -562,30 +540,20 @@ class DebugSession:
 
     def _work(self) -> None:
         ex = self.executor
-        assert ex is not None
-        prev_cwd = os.getcwd()
-        prev_stdout = sys.stdout
-        proxy = _ThreadStdout(self.stdout_buf, threading.get_ident(), prev_stdout)
-        sys.stdout = proxy  # type: ignore[assignment]
+        assert ex is not None and self.ticket is not None
         exc: BaseException | None = None
         try:
-            if not self.base_dir.exists() and _is_within(self.base_dir, self.manager.root):
-                self.base_dir.mkdir(parents=True, exist_ok=True)
-            os.chdir(self.base_dir)
-            ex.run(self.pipeline)
+            with capture_thread_stdout(self.stdout_buf):
+                ex.run(self.pipeline)
         except DebugAbort:
             pass
-        except BaseException as e:  # noqa: BLE001 — report everything
+        except BaseException as e:  # noqa: BLE001 — thread boundary: report everything
             exc = e
         finally:
-            with contextlib.suppress(OSError):
-                os.chdir(prev_cwd)
-            if sys.stdout is proxy:
-                sys.stdout = prev_stdout
             try:
                 self._finish(exc)
             finally:
-                self.manager.run_lock.release()
+                self.ticket.release()
 
     def _watchdog(self) -> None:
         tick = self.manager.tick
@@ -606,7 +574,9 @@ class DebugSession:
                 # if it is stuck inside one long command, report right away.
                 t = self.thread
                 if t is not None:
-                    t.join(1.0)
+                    t.join(self.manager.gate.grace)
+                    if t.is_alive() and self.ticket is not None:
+                        self.ticket.abandon(t)      # stuck in a native call: stop waiting
                 self._finish(None)
                 return
 
@@ -861,9 +831,7 @@ class DebugSession:
             "pause": self._pauses,
             "reason": reason,
             "message": message,
-            "location": None if stmt is None else {
-                "line": stmt.line or None, "col": stmt.col or None,
-                "statement": type(stmt).__name__},
+            "location": None if stmt is None else self._location(stmt, stack),
             "stack": stack if keep_stack else [],
             "variables": {"globals": gvars, "frames": variables_by_frame},
             "buffers": buffers,
@@ -874,6 +842,16 @@ class DebugSession:
             "stdout": self.stdout_buf.getvalue()[-MAX_STDOUT_CHARS:],
             "visited_lines": sorted(ex.visited),
         }
+
+    @staticmethod
+    def _location(stmt: Any, stack: list[dict]) -> dict:
+        """Where the editor should point: a statement in another file is shown
+        at the innermost call in the edited file instead."""
+        line, col = stmt.line, stmt.col
+        if stmt.file is not None:
+            site = next((e for e in stack if e["file"] is None), None)
+            line, col = (site["line"], site["col"]) if site else (None, None)
+        return {"line": line or None, "col": col or None, "statement": type(stmt).__name__}
 
     # ── control (request threads) ──────────────────────────────────────────
 
@@ -993,13 +971,13 @@ def _run_with_timeout(fn: Callable[[], Any], timeout: float) -> Any:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class DebugManager:
-    def __init__(self, *, registry: Any, root: Path, run_lock: threading.Lock,
+    def __init__(self, *, registry: Any, root: Path, gate: RunGate,
                  results: Any, timeout_fn: Callable[[], float],
                  idle_timeout: float = DEFAULT_IDLE_TIMEOUT_S, tick: float = 0.1,
                  plugins: bool = True) -> None:
         self.registry = registry
         self.root = root
-        self.run_lock = run_lock
+        self.gate = gate
         self.results = results
         self.timeout_fn = timeout_fn
         self.idle_timeout = idle_timeout
@@ -1030,9 +1008,8 @@ class DebugManager:
             s.stop()
 
     def start(self, *, code: str, pipeline: Any, pipeline_path: Path | None,
-              base_dir: Path, include_roots: list[Path],
-              breakpoints: list[tuple[int, str | None]], watch: list[str],
-              stop_on_entry: bool | None) -> DebugSession:
+              guard: PathGuard, breakpoints: list[tuple[int, str | None]],
+              watch: list[str], stop_on_entry: bool | None) -> DebugSession:
         """Stop any running session, then start a new one.
 
         Raises :class:`RuntimeError` when the interpreter is busy with
@@ -1041,12 +1018,13 @@ class DebugManager:
         old = self.active()
         if old is not None:
             old.stop()
-        if not self.run_lock.acquire(timeout=3.0):
+        ticket = self.gate.acquire(timeout=3.0)         # RunBlocked is a RuntimeError
+        if ticket is None:
             raise RuntimeError("Another run is still in progress")
         try:
             entry = (not breakpoints) if stop_on_entry is None else bool(stop_on_entry)
             sess = DebugSession(self, code=code, pipeline=pipeline,
-                                pipeline_path=pipeline_path, base_dir=base_dir,
+                                pipeline_path=pipeline_path,
                                 breakpoints=breakpoints, watch=watch, stop_on_entry=entry)
             loader = None
             if self.plugins:
@@ -1057,21 +1035,21 @@ class DebugManager:
                     loader = None
             ex = DebugExecutor(
                 registry=self.registry, verbose=False, plugin_loader=loader,
-                pipeline_path=pipeline_path, base_dir=base_dir, workspace_root=self.root,
-                include_roots=include_roots, cancel=sess.cancel, session=sess)
+                pipeline_path=pipeline_path, path_guard=guard, cancel=sess.cancel,
+                array_limits=EDITOR_LIMITS, session=sess)
             with self._lock:
                 self._sessions[sess.id] = sess
                 self._trim()
-            sess.start_thread(ex, loader)       # releases run_lock when done
+            sess.start_thread(ex, loader, ticket)       # releases the ticket when done
         except BaseException:
-            self.run_lock.release()
+            ticket.release()
             raise
         return sess
 
     def failed(self, *, code: str, exc: SyntaxError, pipeline: Any = None) -> DebugSession:
         """A session that never started (syntax error): terminal from the get-go."""
         sess = DebugSession(self, code=code, pipeline=pipeline or _EMPTY_PIPELINE(),
-                            pipeline_path=None, base_dir=self.root, breakpoints=[],
+                            pipeline_path=None, breakpoints=[],
                             watch=[], stop_on_entry=False)
         info = error_info(exc, code, "syntax")
         payload = {**empty_run_payload(uuid.uuid4().hex), "error": str(exc),

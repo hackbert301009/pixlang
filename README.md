@@ -51,7 +51,7 @@ SAVE "output/result.png"
 | **ROI** | `ROI x y w h … ROI_RESET` — process masked regions, auto-paste back |
 | **Batch** | `LOAD_GLOB` + `SAVE_EACH` — multi-file runs with template filenames |
 | **Plugins** | Entry-points (auto), local `.plugins.py` / directory (opt-in via `--trust-plugins`) |
-| **Linter** | 12 rules, `pixlang lint`, integrated into watch mode |
+| **Linter** | 13 rules, `pixlang lint`, integrated into watch mode |
 | **Watch** | `pixlang watch` — file-change polling with auto-rerun |
 | **Config** | `pixlang.toml` — project-level variables, defaults, lint overrides |
 | **71 commands** | I/O · Geometry · Color · Threshold · Filter · Morphology · Analysis · Annotation · Depth · Bitwise · LUT · Channels · Raw/embedded |
@@ -75,12 +75,12 @@ pixlang run examples/pipeline.pxl --verbose
 ## CLI Reference
 
 ```bash
-pixlang run      pipeline.pxl [--verbose] [--no-plugins] [--trust-plugins] [--var k=v]
+pixlang run      pipeline.pxl [--verbose] [--no-plugins] [--trust-plugins] [--var k=v] [--no-preflight]
 pixlang batch    pipeline.pxl [--var k=v]
 pixlang link     pipeline.pxl [--map]
-pixlang lint     pipeline.pxl
+pixlang lint     pipeline.pxl [--var k=v]
 pixlang watch    pipeline.pxl [--verbose] [--interval 0.5]
-pixlang validate pipeline.pxl
+pixlang validate pipeline.pxl [--var k=v]
 pixlang commands [--source builtin] [--category Bitwise]
 pixlang plugins
 pixlang new      <project-name>
@@ -333,6 +333,7 @@ PixLang searches for `pixlang.toml` in the pipeline directory and parent directo
 | PX010 | WARNING | THRESHOLD before GRAYSCALE |
 | PX011 | ERROR | Unknown command name |
 | PX012 | WARNING | Bare word looks like a typo of a defined variable |
+| PX013 | WARNING | `SET` value is a bare image property or command name (stored as a string) |
 
 Rule crashes are reported as `PX000`; ignore rules with `[lint] ignore = [...]`.
 
@@ -399,6 +400,12 @@ pytest tests/test_v4.py     # v0.4 only
 - [ ] v0.6 — ONNX model inference (`INFER model.onnx`)
 - [ ] v0.7 — compile cache for linked modules, tiling for very large images
 - [ ] v1.0 — Language spec, stable API, PyPI release
+
+---
+
+## Contributing
+
+Setup, style rules, and how to add commands and tests are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

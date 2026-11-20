@@ -16,6 +16,8 @@ from typing import Any, Callable, Dict
 
 import numpy as np
 
+from pixlang.commands.limits import check_array
+
 from .memory import dtype_of, to_python
 
 
@@ -153,8 +155,10 @@ def _sizeof(dt):
 
 
 def _zeros(w, h, c=1, dt="u8"):
+    dtype = dtype_of(dt)
+    check_array("ZEROS", h, w, c, dtype.itemsize)
     shape = (int(h), int(w)) if int(c) == 1 else (int(h), int(w), int(c))
-    return np.zeros(shape, dtype=dtype_of(dt))
+    return np.zeros(shape, dtype=dtype)
 
 
 def _hex(v):

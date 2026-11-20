@@ -2,23 +2,61 @@
 
 const TOKEN = document.querySelector('meta[name="pixlang-token"]')?.content || "";
 
+const REQUEST_TIMEOUT_MS = 120_000;   // a hung server, not a slow pipeline (runs stop at the server's limit)
+
+/**
+ * Failure of an API call. `kind` tells the UI what to do about it:
+ * "offline" (no answer), "timeout" (no answer in time), "auth" (the editor
+ * token is stale, i.e. the server restarted), "http" (the server said no).
+ */
+export class ApiError extends Error {
+  constructor(kind, message, { status = 0, data = null } = {}) {
+    super(message);
+    this.kind = kind;
+    this.status = status;
+    this.data = data;
+  }
+}
+
+const connectionListeners = new Set();
+/** Called with "ok", "offline" or "auth" whenever a request shows the state of the link. */
+export function onConnection(fn) {
+  connectionListeners.add(fn);
+  return () => connectionListeners.delete(fn);
+}
+function reportConnection(state) { for (const fn of connectionListeners) fn(state); }
+
 /** JSON API call carrying the per-process editor token. */
-export async function api(path, body) {
-  const opts = { headers: { "X-PixLang-Token": TOKEN }, cache: "no-store" };
+export async function api(path, body, { timeout = REQUEST_TIMEOUT_MS, signal } = {}) {
+  const ctl = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, timeout);
+  if (signal) signal.addEventListener("abort", () => ctl.abort(), { once: true });
+  const opts = { headers: { "X-PixLang-Token": TOKEN }, cache: "no-store", signal: ctl.signal };
   if (body !== undefined) {
     opts.method = "POST";
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch(path, opts);
-  let data = null;
-  try { data = await res.json(); } catch { data = null; }
-  if (!res.ok) {
-    const err = new Error((data && data.error) || `${res.status} ${res.statusText}`);
-    err.status = res.status;
-    err.data = data;
-    throw err;
+  let res, data = null;
+  try {
+    res = await fetch(path, opts);
+    try { data = await res.json(); } catch { data = null; }
+  } catch (e) {
+    if (timedOut) throw new ApiError("timeout", "Server did not answer in time");
+    if (e && e.name === "AbortError") throw e;           // cancelled by the caller
+    reportConnection("offline");
+    throw new ApiError("offline", "Server not reachable");
+  } finally {
+    clearTimeout(timer);
   }
+  const message = (data && data.error) || `${res.status} ${res.statusText}`;
+  if (res.status === 403 && /token/i.test(message)) {
+    reportConnection("auth");
+    throw new ApiError("auth", "Session expired — reload the page", { status: 403, data });
+  }
+  reportConnection("ok");
+  if (!res.ok) throw new ApiError("http", message, { status: res.status, data });
   return data;
 }
 
@@ -33,13 +71,44 @@ export function apiKeepalive(path, body = {}) {
   } catch { /* unloading */ }
 }
 
-/** localStorage wrapper that never throws. */
+/**
+ * localStorage wrapper that never throws and never hands back a value of the
+ * wrong shape: each getter takes the fallback for missing, unparsable or
+ * mistyped data, so what is stored cannot crash a consumer.
+ */
+const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+function readStored(key) {
+  try {
+    const v = localStorage.getItem("pixlang." + key);
+    return v === null ? undefined : JSON.parse(v);
+  } catch { return undefined; }
+}
+
 export const store = {
-  get(key, fallback = null) {
-    try {
-      const v = localStorage.getItem("pixlang." + key);
-      return v === null ? fallback : JSON.parse(v);
-    } catch { return fallback; }
+  getBool(key, fallback = false) {
+    const v = readStored(key);
+    return typeof v === "boolean" ? v : fallback;
+  },
+  getNumber(key, fallback, { min = -Infinity, max = Infinity } = {}) {
+    const v = readStored(key);
+    return typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
+  },
+  /** A string; with `allowed`, one of those strings. */
+  getString(key, fallback, allowed) {
+    const v = readStored(key);
+    if (typeof v !== "string") return fallback;
+    return !allowed || allowed.includes(v) ? v : fallback;
+  },
+  /** An array holding only the items `keep` accepts. */
+  getList(key, keep = () => true) {
+    const v = readStored(key);
+    return Array.isArray(v) ? v.filter(keep) : [];
+  },
+  /** A plain object (never null, an array or a primitive). */
+  getObject(key) {
+    const v = readStored(key);
+    return isPlainObject(v) ? v : {};
   },
   set(key, value) {
     try { localStorage.setItem("pixlang." + key, JSON.stringify(value)); } catch { /* blocked */ }
